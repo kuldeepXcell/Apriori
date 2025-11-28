@@ -46,7 +46,7 @@ st.markdown("""
 st.markdown("""
     <div class="main-header">
         <div class="company-logo">
-            <img src="static/AprioriFullLogo.png" alt="Apriori Logo">
+            <img src="app/static/AprioriFullLogo.png" alt="Apriori Logo">
         </div>
         <div class="app-title">Data Visualization</div>
     </div>

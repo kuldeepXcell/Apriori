@@ -2,6 +2,7 @@ from typing import List
 from app.models.schemas import FinancialIndicator
 from app.services.llm_service import llm_service
 from app.services.qdrant_service import qdrant_service
+from app.configs.pipeline_config import PipelineConfig
 import uuid
 
 class IngestionService:
@@ -36,30 +37,46 @@ class IngestionService:
             ))
         return indicators
 
-    def run_ingestion(self):
+    def run_ingestion(self, pipeline_configs: List[PipelineConfig]):
         """
-        Orchestrates the ingestion process: Load -> Embed -> Upsert.
-        """
-        print("Starting ingestion...")
+        Orchestrates the ingestion process for multiple pipeline configurations.
+        Each pipeline with a unique embedding model gets its own collection.
         
-        # 1. Load Data
+        Args:
+            pipeline_configs: List of pipeline configurations to ingest for
+        """
+        print("Starting multi-pipeline ingestion...")
+        
+        # 1. Load Data (once)
         indicators = self.load_data()
         print(f"Loaded {len(indicators)} indicators.")
         
-        # 2. Generate Embeddings
-        embeddings = []
-        for ind in indicators:
-            # Create a rich text representation for embedding
-            text_to_embed = f"{ind.name}: {ind.definition}"
-            emb = llm_service.get_embedding(text_to_embed)
-            embeddings.append(emb)
-        print("Embeddings generated.")
+        # 2. Group configs by embedding model (to avoid duplicate work)
+        embedding_groups = {}
+        for config in pipeline_configs:
+            key = (config.embedding_model, config.embedding_dim)
+            if key not in embedding_groups:
+                embedding_groups[key] = []
+            embedding_groups[key].append(config)
         
-        # 3. Ensure Collection Exists
-        qdrant_service.create_collection()
+        # 3. For each unique embedding model, generate embeddings and ingest
+        for (embedding_model, embedding_dim), configs in embedding_groups.items():
+            print(f"\nProcessing embedding model: {embedding_model}")
+            
+            # Generate Embeddings
+            embeddings = []
+            for ind in indicators:
+                text_to_embed = f"{ind.name}: {ind.definition}"
+                emb = llm_service.get_embedding(text_to_embed, model=embedding_model)
+                embeddings.append(emb)
+            print(f"Generated {len(embeddings)} embeddings with {embedding_model}.")
+            
+            # Upsert to each collection that uses this embedding model
+            for config in configs:
+                print(f"  Upserting to collection: {config.collection_name}")
+                qdrant_service.create_collection(config.collection_name, embedding_dim)
+                qdrant_service.upsert_indicators(config.collection_name, indicators, embeddings)
         
-        # 4. Upsert to Qdrant
-        qdrant_service.upsert_indicators(indicators, embeddings)
-        print("Ingestion complete.")
+        print("\nIngestion complete for all pipelines.")
 
 ingestion_service = IngestionService()

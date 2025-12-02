@@ -1,103 +1,46 @@
 import streamlit as st
+from app.services.retrieval import retrieval_service
+from app.core.config import settings
 
-# Page configuration
-st.set_page_config(
-    page_title="Data Visualization | Apriori",
-    page_icon="static/AprioriFavicon.png",
-    layout="centered",
-    menu_items={
-        'Get Help': 'https://www.aprioriconsultants.com/',
-        'About': "This is a simple application designed to Identify Indicators from the user's question."
-    }
-)
+st.set_page_config(page_title="Financial Indicator RAG", layout="wide")
 
-# Custom CSS for styling
-st.markdown("""
-    <style>
-    .main-header {
-        text-align: center;
-        padding: 20px 0;
-    }
-    .company-logo {
-        font-size: 48px;
-        margin-bottom: 10px;
-    }
-    .app-title {
-        font-size: 20px;
-        color: #666;
-        margin-bottom: 30px;
-    }
-    .output-box {
-        background-color: #010011;
-        border-radius: 10px;
-        padding: 20px;
-        margin-top: 20px;
-        min-height: 100px;
-        border-left: 4px solid #1f77b4;
-    }
-    .stTextInput > label {
-        font-size: 16px;
-        font-weight: 500;
-    }
-    </style>
-""", unsafe_allow_html=True)
+st.title("Financial Indicator Search")
+st.markdown("Search for financial indicators using natural language.")
 
-# Header section
-st.markdown("""
-    <div class="main-header">
-        <div class="company-logo">
-            <img src="app/static/AprioriFullLogo.png" alt="Apriori Logo">
-        </div>
-        <div class="app-title">Data Visualization</div>
-    </div>
-""", unsafe_allow_html=True)
-
-st.markdown("---")
-
-# Initialize session state for storing responses
-if 'response' not in st.session_state:
-    st.session_state.response = ""
-
-# Input section
-question = st.text_input("Ask a question", placeholder="Type your question here...")
-
-
-# Your chatbot logic function
-def process_question(que):
-    """
-    Replace this function with your actual chatbot logic.
-    This is just a simple example that echoes the question.
-    """
-    # Example logic - replace with your implementation
-    response = f"You asked: '{que}'\n\n"
-    response += "This is where your chatbot response would appear. "
-    response += "Integrate your AI model, API calls, or logic here."
-
-    # Example: Simple rule-based responses
-    question_lower = que.lower()
-    if "hello" in question_lower or "hi" in question_lower:
-        response = "Hello! How can I assist you today?"
-    elif "help" in question_lower:
-        response = "I'm here to help! You can ask me questions about our services, products, or general inquiries."
-    elif "?" in que:
-        response = f"That's a great question! Regarding '{que}', let me provide you with a detailed answer based on my knowledge base."
-
-    return response
-
-
-# Process button
-if st.button("Identify Indicators", type="primary", use_container_width=True):
-    if question:
-        with st.spinner("Processing your question..."):
-            # YOUR LOGIC HERE
-            # Replace this with your actual chatbot logic
-            response = process_question(question)
-            st.session_state.response = response
+# Sidebar for debug/config
+with st.sidebar:
+    st.header("Configuration")
+    if not settings.OPENAI_API_KEY:
+        st.error("OpenAI API Key not found in .env")
     else:
-        st.warning("Please ask a question first!")
+        st.success("OpenAI API Key loaded")
+        
+    if not settings.QDRANT_API_KEY and "localhost" not in settings.QDRANT_URL:
+         st.warning("Qdrant API Key missing (might be needed for cloud)")
 
-# Output section
-if st.session_state.response:
-    st.markdown("### Response:")
-    st.markdown(f'<div class="output-box">{st.session_state.response}</div>',
-                unsafe_allow_html=True)
+# Main Search Interface
+query = st.text_input("Enter your query:", placeholder="e.g., GDP growth in developing countries")
+
+if st.button("Search") or query:
+    if not query:
+        st.warning("Please enter a query.")
+    else:
+        with st.spinner("Searching and analyzing..."):
+            try:
+                results = retrieval_service.search_indicators(query)
+                
+                if not results:
+                    st.info("No relevant indicators found.")
+                else:
+                    st.success(f"Found {len(results)} relevant indicators.")
+                    
+                    for res in results:
+                        with st.expander(f"{res.indicator.name} (Relevance: {res.score:.2f})"):
+                            st.markdown(f"**Definition:** {res.indicator.definition}")
+                            if res.indicator.keywords:
+                                st.markdown(f"**Keywords:** {', '.join(res.indicator.keywords)}")
+                            if res.relevance_reason:
+                                st.markdown(f"**Reason:** {res.relevance_reason}")
+                                
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")

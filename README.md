@@ -4,6 +4,9 @@ This is a simple **Streamlit-based application** designed to showcase basic data
 interactive chatbot interface. The app answers user queries and provides a clean, modern interface for interacting with
 data.
 
+For the larger production system (moderation → hybrid retrieval → reranking), see `docs/architecture-plan.md` for the
+proposed architecture and module layout.
+
 ## Features
 
 - **Customizable Data Visualization:** A dedicated space to implement data visualization, which can be added to or

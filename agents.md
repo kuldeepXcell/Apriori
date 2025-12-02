@@ -55,7 +55,20 @@ The application follows a **pipeline-based experimentation architecture**, allow
 - **Structure Evolution**: The defined structure is a baseline. Agents are empowered to adapt, refactor, or expand the architecture and directory structure as project requirements evolve, using their best judgment to maintain code quality and scalability.
 - **Experimentation Friendly**: Support easy addition of new models, pipelines, and processing steps. Configuration should drive behavior, not hardcoded logic. Enable parallel pipeline execution for A/B testing.
 
-## 6. Key Workflows
+## 6. Application Flow Documentation
+**CRITICAL**: Always maintain `application_flow.md` in the project root. This file documents:
+- Current pipeline configurations and active models
+- Technical decisions and their rationale
+- One-time vs. recurring processes
+- Data flow through the system
+- Any important implementation details
+
+**Agent Responsibility**: 
+- Read `application_flow.md` before making changes to understand current state
+- Update it immediately after implementing new features or changing architecture
+- Keep it concise but complete - future agents depend on this as source of truth
+
+## 7. Key Workflows
 - **Ingestion**: Run `python scripts/run_ingestion.py` to parse `data/` and populate Qdrant collections (one per embedding model). This is a one-time or scheduled process.
 - **Querying**: User enters text in Streamlit -> All configured pipelines execute in parallel -> Each pipeline performs: Embedding -> Qdrant Search -> LLM Re-rank -> Results displayed side-by-side for comparison.
 - **Adding New Pipeline**: Create a new config in `app/configs/`, optionally create custom pipeline class in `app/pipelines/`, restart the app.

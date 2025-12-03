@@ -10,17 +10,8 @@ DEFAULT_PIPELINES = [
         llm_model="gpt-4o",
         collection_name="financial_indicators_baseline",
         search_limit=15,
-        rerank_limit=5
-    ),
-    PipelineConfig(
-        name="fast",
-        description="Fast: text-embedding-ada-002 + GPT-3.5-turbo",
-        embedding_model="text-embedding-ada-002",
-        embedding_dim=1536,
-        llm_model="gpt-3.5-turbo",
-        collection_name="financial_indicators_fast",
-        search_limit=15,
-        rerank_limit=5
+        rerank_limit=5,
+        primary_vector_name="definition_vector"
     ),
     # Add more pipeline configs here as needed
 ]

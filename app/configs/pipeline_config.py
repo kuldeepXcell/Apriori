@@ -19,6 +19,10 @@ class PipelineConfig(BaseModel):
     
     # Qdrant Configuration
     collection_name: str = Field(..., description="Qdrant collection name for this pipeline")
+    primary_vector_name: str = Field(
+        default="definition_vector",
+        description="Named vector to use for dense search within the collection"
+    )
     
     # Search Parameters
     search_limit: int = Field(default=15, description="Number of candidates to retrieve")

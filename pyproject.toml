@@ -8,6 +8,10 @@ dependencies = [
     "streamlit>=1.51.0",
     "qdrant-client",
     "openai",
+    "openai-agents",
     "pydantic",
     "python-dotenv",
+    "pandas>=2.3.3",
+    "openpyxl>=3.1.5",
+    "fastembed>=0.7.3",
 ]

@@ -43,7 +43,8 @@ class RetrievalPipeline:
             scored_points = qdrant_service.search(
                 collection_name=self.config.collection_name,
                 query_vector=query_embedding,
-                limit=self.config.search_limit
+                limit=self.config.search_limit,
+                vector_name=self.config.primary_vector_name
             )
             
             if not scored_points:

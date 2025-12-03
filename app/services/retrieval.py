@@ -1,4 +1,5 @@
 from typing import List
+from app.core.config import settings
 from app.services.qdrant_service import qdrant_service
 from app.services.llm_service import llm_service
 from app.models.schemas import SearchResult, FinancialIndicator
@@ -29,7 +30,15 @@ class RetrievalService:
 
         # 3. Hybrid Search (Qdrant)
         # Currently using dense search, TODO: Add keyword filter
-        sc_points = qdrant_service.search(query_vector=query_embedding, limit=15)
+        if not settings.QDRANT_COLLECTION_NAME:
+            raise ValueError("QDRANT_COLLECTION_NAME is not configured in the environment.")
+
+        sc_points = qdrant_service.search(
+            collection_name=settings.QDRANT_COLLECTION_NAME,
+            query_vector=query_embedding,
+            limit=15,
+            vector_name=qdrant_service.default_vector_name
+        )
         
         if not sc_points:
             return []

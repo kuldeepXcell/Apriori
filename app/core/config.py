@@ -15,5 +15,6 @@ class Settings:
     # Model Configs
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL")
     EMBEDDING_DIM: int = os.getenv("EMBEDDING_DIM")
+    KEYWORD_AGENT_MODEL: str = os.getenv("KEYWORD_AGENT_MODEL", "gpt-5-nano")
 
 settings = Settings()

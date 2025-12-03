@@ -21,11 +21,16 @@
 
 ### One-Time Processes
 1. **Initial Ingestion** (`scripts/run_ingestion.py`)
-   - Reads raw data from `data/` directory
-   - Generates embeddings for each active pipeline config
-   - Creates Qdrant collections (one per embedding model)
-   - Upserts indicators with embeddings to respective collections
-   - **Status**: Not yet run (waiting for real data)
+   - Loads canonical indicator data from `country_indicators.json`
+   - Generates three dense embeddings per indicator (question, definition, application) plus a BM25 sparse vector derived from keywords
+   - Creates multi-vector Qdrant collections per embedding model (named dense vectors + `keywords_sparse_vector`)
+   - Upserts indicators with full payload metadata; supports `--range 5-10` (1-indexed inclusive) to ingest only a slice for storage analysis
+   - **Status**: Ready for partial or full runs once OpenAI & Qdrant credentials are configured
+2. **Keyword Generation** (`scripts/run_keyword_generation_agent.py`)
+   - Reads canonical indicator metadata from `country_indicators.json`
+   - Invokes the OpenAI Agents SDK-based keyword agent **once per indicator** to create 15 hybrid-search-ready keywords
+   - Updates the source JSON in-place (or an optional `--output` path) with a `keywords` array on every indicator plus run metadata; progress is flushed after each indicator and already-processed indicators are skipped on subsequent runs (unless `--force` is provided)
+   - **Status**: Ready to run once OpenAI credentials are configured
 
 ### Runtime Processes
 1. **Query Execution** (Triggered by user in Streamlit UI)
@@ -54,17 +59,33 @@ To enable real-time A/B testing and model comparison. Users can see performance 
 ## Data Sources
 
 ### Current Status
-- Using dummy data (2 placeholder financial indicators)
-- Awaiting real financial indicator files in `data/` directory
+- **Country Indicators**: 96 financial indicators extracted from `Dataset_directory.xlsx` (Country sheet)
+- Data includes: indicator names, normalized names, definitions, use case questions, and application contexts
+- JSON format available at `country_indicators.json`
+- Indicators cover macroeconomic metrics: GDP, GNI, sectoral breakdowns, etc.
 
 ### Expected Format
-*To be updated when real data is added*
+*Country indicators follow this structure:*
+- `subsection`: Category grouping (e.g., "Production-level", "Labor market")
+- `subsubsection`: Sub-category (e.g., "Aggregate Output", "Productivity/Efficiency")
+- `indicator_name`: Original indicator name
+- `normalized_indicator_name`: Standardized name for processing
+- `definition`: Detailed explanation of the indicator
+- `question`: Use case question for analysis
+- `application_context`: How to analyze the indicator
 
 ## Recent Changes
+- **2025-12-04**: Wired ingestion to multi-vector + sparse hybrid flow
+  - Added FastEmbed BM25 encoder and named dense vectors (`question_vector`, `definition_vector`, `application_vector`)
+  - Script now loads `country_indicators.json` directly, writing normalized metadata to payloads
+  - New `--range` flag enables partial upserts (e.g., ingest indicators 5-10) to inspect Qdrant storage impact before full runs
 - **2025-12-02**: Initial multi-pipeline architecture implemented
   - Created pipeline configuration system
   - Implemented parallel execution
   - Built comparison UI
+- **2025-12-03**: Added OpenAI Agents SDK keyword generation workflow
+  - Introduced `KeywordGenerationAgent` service with strict JSON output parsing
+  - Added `scripts/run_keyword_generation_agent.py` CLI to batch process all indicators and store keywords for hybrid search
 
----
-*Last Updated: 2025-12-02*
+
+*Last Updated: 2025-12-04*

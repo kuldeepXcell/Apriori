@@ -47,3 +47,9 @@ This will launch the Streamlit app in your default web browser. You can start in
 visualizations directly.
 
 Note: STREAMLIT_SERVER_ENABLE_STATIC_SERVING=true
+
+## Pipelines and preprocessing
+
+- All pipelines start from `country_indicators.json` (future versions may change text but keep the same structure).
+- Pipeline-specific preprocessing hooks live under `app/preprocessing/<pipeline_name>/`. Add steps there only when a
+  pipeline needs bespoke logic beyond the shared flow.

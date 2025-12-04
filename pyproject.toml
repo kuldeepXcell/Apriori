@@ -10,4 +10,5 @@ dependencies = [
     "openai",
     "pydantic",
     "python-dotenv",
+    "pyyaml",
 ]

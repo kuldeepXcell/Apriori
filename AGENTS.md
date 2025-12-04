@@ -1,0 +1,1 @@
+Always always keep in mind that if the logic or code is changed then decide if it is affecting or being used by other parts of the code. If yes then make sure to update those parts as well.

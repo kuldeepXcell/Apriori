@@ -1,32 +1,66 @@
-from pydantic import BaseModel, Field
-from typing import List, Callable, Optional
+from __future__ import annotations
+
+# from pathlib import Path
+from typing import Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+
+class NamedVectorConfig(BaseModel):
+    """Configuration for an individual named vector within a collection."""
+
+    type: Literal["dense", "sparse", "multivector"]
+    dim: Optional[int] = Field(
+        default=None, description="Dimension for dense or multivectors."
+    )
+
+    @field_validator("dim")
+    @classmethod
+    def validate_dim_for_dense(cls, value: Optional[int], info) -> Optional[int]:
+        vector_type = info.data.get("type", "dense")
+        if vector_type in {"dense", "multivector"} and value is None:
+            raise ValueError(f"Named vector of type '{vector_type}' requires 'dim'")
+        return value
+
+
+class VectorStoreConfig(BaseModel):
+    collection_name: str
+    multivector: bool
+    named_vectors: Dict[str, NamedVectorConfig]
+
+
+class EmbeddingConfig(BaseModel):
+    model: str
+    dimensions: int
+
+
+class HybridConfig(BaseModel):
+    mode: Literal["prefetch"]
+    dense_weight: float
+    sparse_weight: float
+
+
+class RetrievalConfig(BaseModel):
+    search_limit: int
+    hybrid: HybridConfig
+
+
+class RerankerConfig(BaseModel):
+    model: str
+    temperature: float
+
 
 class PipelineConfig(BaseModel):
-    """
-    Configuration for a retrieval pipeline.
-    Defines all the models and processing steps for a single experiment.
-    """
-    name: str = Field(..., description="Unique pipeline identifier")
-    description: str = Field(default="", description="Human-readable description")
-    
-    # Embedding Configuration
-    embedding_model: str = Field(..., description="OpenAI embedding model name")
-    embedding_dim: int = Field(..., description="Embedding vector dimension")
-    
-    # LLM Configuration
-    llm_model: str = Field(default="gpt-4o", description="LLM model for re-ranking")
-    llm_temperature: float = Field(default=0.0, description="Temperature for LLM")
-    
-    # Qdrant Configuration
-    collection_name: str = Field(..., description="Qdrant collection name for this pipeline")
-    
-    # Search Parameters
-    search_limit: int = Field(default=15, description="Number of candidates to retrieve")
-    rerank_limit: int = Field(default=5, description="Number of results after re-ranking")
-    
-    # Processing (function names as strings, resolved at runtime)
-    preprocessing_steps: List[str] = Field(default_factory=list, description="Preprocessing function names")
-    postprocessing_steps: List[str] = Field(default_factory=list, description="Postprocessing function names")
-    
+    """Configuration for a retrieval pipeline loaded from YAML."""
+
+    name: str
+    description: str
+    vector_store: VectorStoreConfig
+    embedding: EmbeddingConfig
+    retrieval: RetrievalConfig
+    reranker: RerankerConfig
+    preprocessing: List[str]
+    postprocessing: List[str]
+
     class Config:
         from_attributes = True

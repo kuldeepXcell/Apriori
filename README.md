@@ -4,8 +4,8 @@ This is a simple **Streamlit-based application** designed to showcase basic data
 interactive chatbot interface. The app answers user queries and provides a clean, modern interface for interacting with
 data.
 
-For the larger production system (moderation → hybrid retrieval → reranking), see `docs/architecture-plan.md` for the
-proposed architecture and module layout.
+For the larger production system (moderation → hybrid retrieval → reranking), see `PROJECT_STRUCTURE.md` for the current
+layout and how to extend it.
 
 ## Features
 
@@ -50,6 +50,6 @@ Note: STREAMLIT_SERVER_ENABLE_STATIC_SERVING=true
 
 ## Pipelines and preprocessing
 
-- All pipelines start from `country_indicators.json` (future versions may change text but keep the same structure).
-- Pipeline-specific preprocessing hooks live under `app/preprocessing/<pipeline_name>/`. Add steps there only when a
-  pipeline needs bespoke logic beyond the shared flow.
+- All pipelines start from `data/country_indicators.json` (future versions may change text but keep the same structure).
+- Pipeline YAML configs live under `config/pipelines/`. Add new variants there to toggle if/else flow in the orchestrator.
+- Shared preprocessing hooks will live under `src/app/steps/` (per-pipeline customizations can be added later if needed).

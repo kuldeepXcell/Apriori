@@ -5,33 +5,27 @@
 ## Current Pipeline Configurations
 
 ### Active Pipelines
-1. **baseline**
+1. **baseline_hybrid** (`config/pipelines/baseline_hybrid.yaml`)
    - Embedding: `text-embedding-3-small` (1536 dimensions)
-   - LLM: `gpt-4o`
-   - Collection: `financial_indicators_baseline`
-   - Purpose: High-quality baseline for comparison
-
-2. **fast**
-   - Embedding: `text-embedding-ada-002` (1536 dimensions)
-   - LLM: `gpt-3.5-turbo`
-   - Collection: `financial_indicators_fast`
-   - Purpose: Cost-effective alternative for testing
+   - LLM (reranker): `gpt-5-mini`
+   - Collection: `baseline_hybrid`
+   - Purpose: Multivector hybrid baseline (dense + sparse)
 
 ## Data Flow
 
 ### One-Time Processes
-1. **Initial Ingestion** (`scripts/run_ingestion.py`)
-   - Reads raw data from `data/` directory
-   - Generates embeddings for each active pipeline config
-   - Creates Qdrant collections (one per embedding model)
-   - Upserts indicators with embeddings to respective collections
-   - **Status**: Not yet run (waiting for real data)
+1. **Initial Ingestion** (TBD)
+   - Reads raw data from `data/`
+   - Generates embeddings per pipeline config
+   - Creates Qdrant collections
+   - Upserts indicators with embeddings
+   - **Status**: Not implemented yet (pipeline code is a stub)
 
 ### Runtime Processes
-1. **Query Execution** (Triggered by user in Streamlit UI)
+1. **Query Execution** (Streamlit UI)
    - User enters natural language query
-   - All pipelines execute in parallel (ThreadPoolExecutor)
-   - Each pipeline:
+   - Pipelines execute in parallel (ThreadPoolExecutor)
+   - Each pipeline (future):
      - Applies preprocessing (if configured)
      - Generates query embedding
      - Searches Qdrant collection
@@ -54,17 +48,14 @@ To enable real-time A/B testing and model comparison. Users can see performance 
 ## Data Sources
 
 ### Current Status
-- Using dummy data (2 placeholder financial indicators)
-- Awaiting real financial indicator files in `data/` directory
+- Authoritative source: `data/country_indicators.json`
+- Derived artifacts should live in `data/processed/`
 
 ### Expected Format
 *To be updated when real data is added*
 
 ## Recent Changes
-- **2025-12-02**: Initial multi-pipeline architecture implemented
-  - Created pipeline configuration system
-  - Implemented parallel execution
-  - Built comparison UI
+- **2025-12-08**: Restructured project layout to `config/`, `data/`, `src/app/`; added YAML loader + registry stubs and documented structure.
 
 ---
-*Last Updated: 2025-12-02*
+*Last Updated: 2025-12-08*

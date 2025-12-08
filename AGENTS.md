@@ -35,4 +35,3 @@
 - **Web:** Follow existing patterns (React hooks, API routes, state management). Use TypeScript strict mode.
 - **AI:** Explicit about prompts, model choices, and failure modes. Version control prompts as code.
 - **General:** One function, one responsibility. Comments explain *why*, not *what*.
-y, then add repo-specific `AGENTS.md` files for project commands and conventions.

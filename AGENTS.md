@@ -35,3 +35,14 @@
 - **Web:** Follow existing patterns (React hooks, API routes, state management). Use TypeScript strict mode.
 - **AI:** Explicit about prompts, model choices, and failure modes. Version control prompts as code.
 - **General:** One function, one responsibility. Comments explain *why*, not *what*.
+
+
+## Tech Stack
+
+- python 3.11 with uv
+- streamlit for UI
+- use python3 instead of python
+
+## Reference files:
+application_flow.md
+PROJECT_STRUCTURE.md

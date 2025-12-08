@@ -1,0 +1,2 @@
+# Preprocess package namespace.
+

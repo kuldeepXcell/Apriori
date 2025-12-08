@@ -1,8 +1,10 @@
 {
-  "total_indicators": 96,
-  "source_sheet": "Country",
-  "extraction_date": "2025-12-03T12:00:01.558449",
-  "indicators": [
+  "sheets": [
+    {
+      "sheet_name": "Country",
+      "total_indicators": 96,
+      "extraction_date": "2025-12-03T12:00:01.558449",
+      "indicators": [
     {
       "subsection": "Production-level",
       "subsubsection": "Aggregate Output",
@@ -2499,12 +2501,14 @@
         "forecast gdp trends"
       ]
     }
-  ],
-  "keyword_generation": {
-    "keyword_count": 15,
-    "model": "gpt-5-nano",
-    "prompt_version": "v1",
-    "processed": 96,
-    "skipped": 0
-  }
+      ],
+      "keyword_generation": {
+        "keyword_count": 15,
+        "model": "gpt-5-nano",
+        "prompt_version": "v1",
+        "processed": 96,
+        "skipped": 0
+      }
+    }
+  ]
 }

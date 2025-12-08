@@ -11,4 +11,5 @@ dependencies = [
     "pydantic",
     "python-dotenv",
     "pyyaml",
+    "pydantic-settings>=2.12.0",
 ]

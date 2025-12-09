@@ -1,8 +1,7 @@
-"""Keyword generation preprocess step and CLI."""
+"""Keyword generation preprocess step (defaults-driven entrypoint)."""
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import re
@@ -16,6 +15,13 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.config import paths
 from app.config.settings import settings
+
+# Default parameters (edit here to change behavior).
+DEFAULT_INPUT_PATH = paths.DATA_DIR / "country_indicators.json"
+DEFAULT_SHEET_NAME = "Country"
+DEFAULT_RANGE = "0:25"  # inclusive start, exclusive end
+DEFAULT_KEYWORD_COUNT = 15
+DEFAULT_OVERWRITE = False
 
 
 class KeywordGenerationError(RuntimeError):
@@ -160,56 +166,6 @@ class KeywordGenerationAgent:
         return raw_output
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse CLI arguments."""
-
-    default_input = paths.DATA_DIR / "country_indicators.json"
-    parser = argparse.ArgumentParser(
-        description="Generate sparse keywords for indicators using the OpenAI Agents SDK",
-    )
-    parser.add_argument(
-        "--input",
-        type=Path,
-        default=default_input,
-        help="Path to the source indicator JSON file",
-    )
-    parser.add_argument(
-        "--sheet",
-        required=True,
-        help="Sheet name within the payload to target (e.g., 'Country')",
-    )
-    parser.add_argument(
-        "--range",
-        dest="row_range",
-        required=True,
-        help="Inclusive start, exclusive end indicator indices (e.g., 0:10 or 5:).",
-    )
-    parser.add_argument(
-        "--keywords",
-        type=int,
-        default=15,
-        help="Number of keywords to generate per indicator",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default=None,
-        help="Override the model used by the keyword agent",
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Regenerate keywords even if an indicator already has them",
-    )
-    parser.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
-        help="Logging verbosity",
-    )
-    return parser.parse_args()
-
-
 def parse_range(range_arg: str, max_len: int) -> Tuple[int, int]:
     """Convert a CLI range string into start/end indices."""
 
@@ -282,27 +238,26 @@ def append_run_record(sheet: Dict[str, Any], record: Dict[str, Any]) -> None:
 
 
 def main() -> None:
-    """CLI entrypoint to generate keywords for a slice of indicators."""
+    """Entrypoint to generate keywords for a slice of indicators using defaults."""
 
-    args = parse_args()
     logging.basicConfig(
-        level=getattr(logging, args.log_level.upper()),
+        level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(message)s",
     )
 
-    payload = load_payload(args.input)
-    sheet = select_sheet(payload, args.sheet)
+    payload = load_payload(DEFAULT_INPUT_PATH)
+    sheet = select_sheet(payload, DEFAULT_SHEET_NAME)
     indicators: List[Dict[str, Any]] = sheet.get("indicators", [])
     if not indicators:
-        raise SystemExit(f"No indicators found for sheet '{args.sheet}'.")
+        raise SystemExit(f"No indicators found for sheet '{DEFAULT_SHEET_NAME}'.")
 
-    start, end = parse_range(args.row_range, len(indicators))
+    start, end = parse_range(DEFAULT_RANGE, len(indicators))
     target_indicators = indicators[start:end]
     if not target_indicators:
         raise SystemExit("Selected range produced no indicators to process.")
 
-    assert_overwrite_policy(target_indicators, args.overwrite, args.sheet, start, end)
-    agent = KeywordGenerationAgent(keyword_count=args.keywords, model=args.model)
+    assert_overwrite_policy(target_indicators, DEFAULT_OVERWRITE, DEFAULT_SHEET_NAME, start, end)
+    agent = KeywordGenerationAgent(keyword_count=DEFAULT_KEYWORD_COUNT, model=None)
 
     processed = 0
     # Generate and persist keywords for each indicator in the requested slice.
@@ -317,21 +272,21 @@ def main() -> None:
 
         indicator["keywords"] = result.keywords
         processed += 1
-        write_payload(args.input, payload)
+        write_payload(DEFAULT_INPUT_PATH, payload)
         logging.debug("Persisted keywords for %s", indicator_name)
 
     # Record the run metadata for traceability.
     run_record = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "sheet": args.sheet,
+        "sheet": DEFAULT_SHEET_NAME,
         "range": f"{start}:{end}",
         "keyword_count": agent.keyword_count,
         "model": agent.model,
         "processed": processed,
-        "overwrite": args.overwrite,
+        "overwrite": DEFAULT_OVERWRITE,
     }
     append_run_record(sheet, run_record)
-    write_payload(args.input, payload)
+    write_payload(DEFAULT_INPUT_PATH, payload)
     logging.info("Keyword generation complete for %s indicators.", processed)
 
 

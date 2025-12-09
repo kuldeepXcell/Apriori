@@ -48,6 +48,25 @@ visualizations directly.
 
 Note: STREAMLIT_SERVER_ENABLE_STATIC_SERVING=true
 
+## CLI: Keyword Generator
+
+  - Defaults (edit in `src/app/steps/preprocess/keyword_generator.py`):
+    - input: `data/country_indicators.json`
+    - sheet: `Country`
+    - range: `0:25` (inclusive start, exclusive end)
+    - keywords per indicator: `15`
+    - overwrite existing: `False`
+  - Command (uses defaults; no args needed):
+    ```bash
+    PYTHONPATH=./src uv run python -m app.steps.preprocess.keyword_generator
+    ```
+
+## CLI: Ingestion Pipeline
+
+  ```bash
+  PYTHONPATH=./src uv run python -m app.ingest --pipeline baseline_hybrid
+  ```
+
 ## Pipelines and preprocessing
 
 - All pipelines start from `data/country_indicators.json` (future versions may change text but keep the same structure).

@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import time
-from typing import List
+from typing import Optional
 
-from app.pipeline.models import PipelineConfig
+from app.pipeline.models import (
+    MultivectorWeights,
+    PipelineConfig,
+    PipelineSearchBundle,
+)
+from app.steps.retrieval.hybrid import HybridRetriever
 
 
 class Pipeline:
@@ -14,12 +19,23 @@ class Pipeline:
     def __init__(self, config: PipelineConfig):
         self.config = config
         self.execution_time: float = 0.0
+        self.retriever: HybridRetriever | None = None
 
-    def search(self, query: str) -> List:
-        """Placeholder search that returns no results for now."""
+    def search(
+        self, query: str, weights: Optional[MultivectorWeights] = None
+    ) -> PipelineSearchBundle:
+        """Run both multivector and HyDe searches."""
         start = time.perf_counter()
-        # TODO: Plug in ingestion + retrieval + rerank based on self.config
+        mv_weights = weights or MultivectorWeights()
+        if self.retriever is None:
+            self.retriever = HybridRetriever(
+                collection_name=self.config.collection_name or "baseline_hybrid",
+                embedding_model=self.config.embedding_model,
+                reranker_model=self.config.llm_model,
+            )
+        multivector = self.retriever.multivector_search(query, mv_weights)
+        hyde = self.retriever.hyde_search(query)
         self.execution_time = time.perf_counter() - start
-        return []
+        return PipelineSearchBundle(multivector=multivector, hyde=hyde)
 
 

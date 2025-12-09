@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+
+import time
 from pathlib import Path
 import uuid
 from typing import Dict, Iterable, List, Sequence
@@ -55,10 +57,16 @@ def ingest_baseline_hybrid(
     if not indicators:
         return 0
 
+    total_indicators = len(indicators)
+    print(
+        f"Starting ingestion into collection '{collection_name}' with {total_indicators} indicators (batch size={BATCH_SIZE})"
+    )
+
     qdrant_adapter.ensure_named_collection(collection_name, vector_store_cfg, force_recreate=False)
 
     total = 0
-    for batch in _batch(indicators, BATCH_SIZE):
+    for batch_idx, batch in enumerate(_batch(indicators, BATCH_SIZE), start=1):
+        batch_start = time.perf_counter()
         points = []
 
         # Dense embeddings: embed each field separately to match named vectors.
@@ -108,8 +116,29 @@ def ingest_baseline_hybrid(
                 )
             )
 
-        qdrant_adapter.upsert_points(collection_name, points)
-        total += len(points)
+        print(
+                f"Batch {batch_idx}: dense shapes def={len(definition_vecs[0]) if definition_vecs else 0} q={len(question_vecs[0]) if question_vecs else 0} app={len(application_vecs[0]) if application_vecs else 0} | sparse count={len(sparse_vecs)}"
+            )
+        print(
+            f"Batch {batch_idx}: point IDs={[p.id for p in points]}"
+        )
 
+        try:
+            qdrant_adapter.upsert_points(collection_name, points)
+        except Exception as exc:  # pragma: no cover - operational logging
+            print(
+                f"Upsert failed for collection '{collection_name}', batch {batch_idx} (size={len(points)}): {exc}"
+            )
+            raise
+
+        total += len(points)
+        batch_ms = (time.perf_counter() - batch_start) * 1000
+        print(
+            f"Batch {batch_idx} upserted {len(points)} points (cumulative={total}) in {batch_ms:.1f} ms"
+        )
+
+    print(
+        f"Ingestion complete for collection '{collection_name}': {total} points upserted from {total_indicators} indicators."
+    )
     return total
 

@@ -1,48 +1,24 @@
-# AGENTS.md - Developer Persona
+This will be new version of ./Apriori which has the same logic but different structure.
+I want to optimize and properly define the structure this time with a lot of thoughts and proper planning.
 
-## Core Philosophy
-- **Build solid, not fast.** Every change should make the codebase easier to understand and maintain.
-- **No invisible work.** If something is unclear, ask 1-3 focused questions before proceeding.
-- **Leave no trace.** Clean up old logic, comments, and imports when updating code.
-- **Avoid patches.** Don't implement temporary fixes unless explicitly requested.
+So take full reference form that directory.
 
-## Working Style
+I am not good with OOPS and class based things so explain me why for those when i ask questions.
 
-### For New Features (Planning Phase)
-1. **Ask first:** 
-   - What's the smallest version that delivers value?
-   - What existing patterns should this follow?
-   - What could break downstream?
-2. **Sketch the approach** in 2-3 sentences for confirmation before coding.
-3. **Plan for tests.** Testing strategy should be clear before implementation.
+old_structure.md contains the file/folder structure of ./Apriori.
 
-### For Errors (Debugging Phase)
-1. **Reproduce first.** Understand the error by running the code or asking about context.
-2. **Root cause > symptom.** Trace the issue to its source; don't treat surface-level symptoms.
-3. **One fix, no regressions.** Verify the fix doesn't break existing tests or similar code paths.
+we will use uv and venv always with this project and venv is already present.
 
-### For Updates & Refactoring
-1. **Audit first.** Search for *all* usages and related logic before changing anything.
-2. **Migrate, don't duplicate.** Move logic cleanly; update references; delete old code.
-3. **Test entire surface.** Run full test suite and manually check edge cases.
+temp.txt files will contain question i asked to an ai code agent in the ./Apriori directory and the answer it gave me.
 
-## Communication Rules
-- **Important decisions?** Ask for confirmation with tradeoffs explained.
-- **Unclear requirements?** Don't guess—ask 1-3 clarifying questions.
-- **Ambiguous tech choice?** Present 2 options with pros/cons and let user decide.
+Always use context7 and web search to look at latest docs for smooth integration of Openai, qdrant or any other framework,library,service etc.
 
-## Code Quality Standards
-- **Web:** Follow existing patterns (React hooks, API routes, state management). Use TypeScript strict mode.
-- **AI:** Explicit about prompts, model choices, and failure modes. Version control prompts as code.
-- **General:** One function, one responsibility. Comments explain *why*, not *what*.
+no need to rush things, take it slow and explain me what you are doing and why you are doing it So that we can make a combined decision.
+Take one decision at a time.
 
 
-## Tech Stack
+new structure decide is in new_structure.md.
 
-- python 3.11 with uv
-- streamlit for UI
-- use python3 instead of python
+Always refer to this new structure befor coding and place things in respective folders/files.
 
-## Reference files:
-application_flow.md
-PROJECT_STRUCTURE.md
+If i ever say remember then add that thing to a file called MEMORIES.md.( you can read from this also.)

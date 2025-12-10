@@ -1,15 +1,13 @@
 [project]
-name = "aprioribackend"
+name = "new-apriori"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
-    "streamlit>=1.51.0",
-    "qdrant-client[fastembed]",
-    "openai",
-    "pydantic",
-    "python-dotenv",
-    "pyyaml",
+    "openai>=2.9.0",
     "pydantic-settings>=2.12.0",
+    "qdrant-client[fastembed]>=1.16.1",
+    "rich>=14.2.0",
+    "streamlit>=1.52.1",
 ]

@@ -1,2 +1,3 @@
-# Preprocess package namespace.
+"""Preprocess steps (e.g., keyword generation)."""
+
 

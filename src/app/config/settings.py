@@ -1,28 +1,18 @@
-"""Environment-backed runtime settings."""
-
-from dotenv import load_dotenv
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-from app.config import paths
-
-# Load environment variables from the project root .env.
-load_dotenv(paths.BASE_DIR / ".env")
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    OPENAI_API_KEY: str | None = None
-    KEYWORD_AGENT_MODEL: str = "gpt-5-nano"
-    QDRANT_URL: str = "http://localhost:6333"
-    QDRANT_API_KEY: str | None = None
+    """Env-driven settings for external services."""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
+    openai_api_key: str
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str | None = None
+    openai_timeout: float = 30.0
+    log_level: str = "INFO"
+    sparse_model_name: str = "Qdrant/bm25"
+
+    model_config = {"env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()
-
 

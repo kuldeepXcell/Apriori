@@ -1,178 +1,111 @@
-"""Streamlit UI for running configured pipelines side-by-side."""
-
 import streamlit as st
 
-from app.config import paths
-from app.config.settings import settings
-from app.pipeline.pipeline_registry import pipeline_registry
-from app.pipeline.models import MultivectorWeights, SearchHit, SearchResponse
+# Page configuration
+st.set_page_config(
+    page_title="Data Visualization | Apriori",
+    page_icon="static/AprioriFavicon.png",
+    layout="centered",
+    menu_items={
+        "Get Help": "https://www.aprioriconsultants.com/",
+        "About": "This is a simple application designed to Identify Indicators from the user's question.",
+    },
+)
 
-
-def _render_results_column(
-    container,
-    title: str,
-    response: SearchResponse,
-    show_generated_def: bool = False,
-) -> None:
-    """Render a single column of results with reranker-first ordering."""
-    with container:
-        st.subheader(f"📌 {title}")
-        if show_generated_def and response.generated_definition:
-            st.info(f"HyDe definition:\n\n{response.generated_definition}")
-
-        if response.error:
-            st.error(f"❌ Error: {response.error}")
-            return
-        if not response.hits:
-            st.info("ℹ️ No relevant indicators found.")
-            return
-
-        reranked = response.reranked or []
-        if reranked:
-            st.markdown(f"### 🧠 LLM reranker picks ({len(reranked)})")
-            _render_hit_list(reranked, key_prefix=f"{title}-rerank")
-        else:
-            st.info("LLM reranker did not return any reordered items.")
-
-        remaining = _remaining_hits(response.hits, reranked)
-        if remaining:
-            st.divider()
-            st.markdown(f"### 📂 Other retrieved (from initial 15) ({len(remaining)})")
-            _render_hit_list(remaining, key_prefix=f"{title}-others")
-
-        st.button("Submit Selection", key=f"{title}-submit")
-
-
-def _render_hit_list(hits: list[SearchHit], key_prefix: str) -> None:
-    for idx, hit in enumerate(hits):
-        indicator = hit.indicator
-        checkbox_key = f"{key_prefix}-chk-{idx}-{indicator.name}"
-        checked = st.checkbox(
-            f"{indicator.name} ({hit.score:.2f})",
-            key=checkbox_key,
-        )
-        with st.expander(f"Details: {indicator.name}"):
-            if indicator.definition:
-                st.markdown(f"📝 **Definition:** {indicator.definition}")
-            if indicator.application_context:
-                st.markdown(f"🏛️ **Application:** {indicator.application_context}")
-            if indicator.keywords:
-                st.markdown(f"🏷️ **Keywords:** {', '.join(indicator.keywords)}")
-            if indicator.question:
-                st.markdown(f"❓ **Question:** {indicator.question}")
-            if hit.relevance_reason:
-                st.caption(f"💡 {hit.relevance_reason}")
-            st.caption(f"Selected: {checked}")
-
-
-def _remaining_hits(all_hits: list[SearchHit], reranked: list[SearchHit]) -> list[SearchHit]:
-    rerank_names = {
-        h.indicator.normalized_name or h.indicator.name for h in reranked
+# Custom CSS for styling
+st.markdown(
+    """
+    <style>
+    .main-header {
+        text-align: center;
+        padding: 20px 0;
     }
-    remaining: list[SearchHit] = []
-    for hit in all_hits:
-        name = hit.indicator.normalized_name or hit.indicator.name
-        if name not in rerank_names:
-            remaining.append(hit)
-    return remaining
+    .company-logo {
+        font-size: 48px;
+        margin-bottom: 10px;
+    }
+    .app-title {
+        font-size: 20px;
+        color: #666;
+        margin-bottom: 30px;
+    }
+    .output-box {
+        background-color: #010011;
+        border-radius: 10px;
+        padding: 20px;
+        margin-top: 20px;
+        min-height: 100px;
+        border-left: 4px solid #1f77b4;
+    }
+    .stTextInput > label {
+        font-size: 16px;
+        font-weight: 500;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Header section
+st.markdown(
+    """
+    <div class="main-header">
+        <div class="company-logo">
+            <img src="static/AprioriFullLogo.png" alt="Apriori Logo">
+        </div>
+        <div class="app-title">Data Visualization</div>
+    </div>
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown("---")
+
+# Initialize session state for storing responses
+if "response" not in st.session_state:
+    st.session_state.response = ""
+
+# Input section
+question = st.text_input("Ask a question", placeholder="Type your question here...")
 
 
-def run_app() -> None:
-    """Launch the Streamlit UI."""
-    paths.ensure_directories()
+# Your chatbot logic function
+def process_question(que: str) -> str:
+    """
+    Replace this function with your actual chatbot logic.
+    This is just a simple example that echoes the question.
+    """
+    # Example logic - replace with your implementation
+    response_text = f"You asked: '{que}'\n\n"
+    response_text += "This is where your chatbot response would appear. "
+    response_text += "Integrate your AI model, API calls, or logic here."
 
-    st.set_page_config(
-        page_title="Financial Indicator RAG - Multi-Model Comparison",
-        layout="wide",
-    )
+    # Example: Simple rule-based responses
+    question_lower = que.lower()
+    if "hello" in question_lower or "hi" in question_lower:
+        response_text = "Hello! How can I assist you today?"
+    elif "help" in question_lower:
+        response_text = "I'm here to help! You can ask me questions about our services, products, or general inquiries."
+    elif "?" in que:
+        response_text = (
+            f"That's a great question! Regarding '{que}', let me provide you with a detailed answer based on my knowledge base."
+        )
 
-    st.title("🔍 Financial Indicator Search")
-    st.markdown("Compare results across different embedding models and LLMs in parallel.")
-
-    all_pipelines = pipeline_registry.get_all_pipelines()
-    active_pipeline = all_pipelines[0] if all_pipelines else None
-
-    # Sidebar for configuration and debug
-    with st.sidebar:
-        st.header("⚙️ Configuration")
-        if not settings.OPENAI_API_KEY:
-            st.error("❌ OpenAI API Key not found in .env")
-        else:
-            st.success("✅ OpenAI API Key loaded")
-
-        if not settings.QDRANT_API_KEY and "localhost" not in settings.QDRANT_URL:
-            st.warning("⚠️ Qdrant API Key missing (might be needed for cloud)")
-
-        st.divider()
-        st.header("📊 Active Pipeline")
-        if active_pipeline:
-            st.markdown(f"**Name:** {active_pipeline.config.name}")
-            st.markdown(f"**Embedding:** `{active_pipeline.config.embedding_model or 'N/A'}`")
-            st.markdown(f"**LLM:** `{active_pipeline.config.llm_model or 'N/A'}`")
-            st.markdown(
-                f"**Collection:** `{active_pipeline.config.collection_name or 'N/A'}`"
-            )
-        else:
-            st.warning("No pipelines found. Add configs under `config/pipelines/`.")
-
-        st.divider()
-        st.header("🎚️ Multivector Weights")
-        w_application = st.slider("Application weight", 0.0, 1.0, 0.33, 0.01)
-        w_context = st.slider("Context weight", 0.0, 1.0, 0.33, 0.01)
-        w_question = st.slider("Question weight", 0.0, 1.0, 0.33, 0.01)
-
-    # Main Search Interface
-    st.divider()
-    query = st.text_input(
-        "🔎 Enter your query:",
-        placeholder="e.g., GDP growth in developing countries",
-    )
-
-    if st.button("🚀 Search", type="primary") or query:
-        if not query:
-            st.warning("Please enter a query.")
-        elif not active_pipeline:
-            st.warning("No pipeline found. Add configs under `config/pipelines/`.")
-        else:
-            st.info("Running multivector and HyDe searches...")
-            weights = MultivectorWeights(
-                application=w_application, context=w_context, question=w_question
-            )
-
-            with st.spinner("Searching Qdrant..."):
-                try:
-                    bundle = active_pipeline.search(query, weights=weights)
-                    exec_time = active_pipeline.execution_time
-                except Exception as exc:  # pragma: no cover - defensive UI catch
-                    bundle = None
-                    exec_time = 0.0
-                    st.error(f"❌ Error while searching: {exc}")
-
-            if bundle:
-                st.success("✅ Search complete!")
-                st.caption(f"Execution time: {exec_time:.2f}s")
-                st.divider()
-
-                col_mv, col_hyde = st.columns(2)
-                _render_results_column(
-                    col_mv,
-                    title="Multivector",
-                    response=bundle.multivector,
-                    show_generated_def=False,
-                )
-                _render_results_column(
-                    col_hyde,
-                    title="HyDe",
-                    response=bundle.hyde,
-                    show_generated_def=True,
-                )
-
-    st.divider()
-    st.caption("💡 Tip: Add more pipelines in `config/pipelines/` to compare different models.")
-    st.caption("Run locally: `streamlit run main.py`")
+    return response_text
 
 
-if __name__ == "__main__":
-    run_app()
+# Process button
+if st.button("Identify Indicators", type="primary", use_container_width=True):
+    if question:
+        with st.spinner("Processing your question..."):
+            # YOUR LOGIC HERE
+            # Replace this with your actual chatbot logic
+            response = process_question(question)
+            st.session_state.response = response
+    else:
+        st.warning("Please ask a question first!")
 
+# Output section
+if st.session_state.response:
+    st.markdown("### Response:")
+    st.markdown(f'<div class="output-box">{st.session_state.response}</div>', unsafe_allow_html=True)
 

@@ -1,0 +1,15 @@
+name: multivector_weighted
+collection_name: baseline_hybrid
+embedding:
+  model: text-embedding-3-small
+  dimensions: 1536
+retrieval:
+  top_k_vector: 15
+llm_rerank:
+  model: gpt-5-nano
+  temperature: 0.2
+  prompt: |
+    You are a reranker. Given a query and a list of retrieved items,
+    return the top items ordered by relevance. Consider semantic closeness
+    and factual alignment.
+

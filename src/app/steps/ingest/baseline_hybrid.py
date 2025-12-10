@@ -1,144 +1,267 @@
-"""Ingestion for baseline_hybrid pipeline (dense + sparse named vectors)."""
+"""Ingest indicators into Qdrant for the multivector_weighted pipeline."""
 
 from __future__ import annotations
 
-import json
-
-import time
-from pathlib import Path
 import uuid
-from typing import Dict, Iterable, List, Sequence
+import json
+from pathlib import Path
+import sys
+from typing import Any, Iterable, List, Tuple
 
-from app.adapters import openai_embedding_adapter, qdrant_adapter, sparse_embedding_adapter
+from fastembed import SparseTextEmbedding  # type: ignore[import]
+from qdrant_client.http import models as qm
 
+ROOT_DIR = Path(__file__).resolve().parents[4]
+SRC_DIR = ROOT_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from app.adapters import embeddings, vector_store
+from app.config.settings import settings
+from app.core.logging import ModuleName, get_logger, setup_logging
+
+# ---- Defaults (adjust in-file) ------------------------------------------------
+INPUT_PATH = ROOT_DIR / "data" / "country_indicators.json"
+COLLECTION = "baseline_hybrid"
+DEF_VECTOR_NAME = "definition_dense"
+QUESTION_VECTOR_NAME = "question_dense"
+CONTEXT_VECTOR_NAME = "context_dense"
+SPARSE_VECTOR_NAME = "keywords_sparse"
+EMBED_MODEL = "text-embedding-3-small"
+EMBED_DIM = 1536
 BATCH_SIZE = 10
+DRY_RUN = False  # set True to skip upsert
+RECREATE = False
+LIMIT: int | None = 1  # temporary: process only 1 indicator
+
+logger = get_logger(__name__)
+sparse_model = SparseTextEmbedding(model_name=settings.sparse_model_name)
 
 
-def _load_indicators(data_path: Path) -> List[Dict]:
-    """Load and flatten indicators from the country_indicators.json structure."""
-    raw = json.loads(data_path.read_text())
-    sheets = raw.get("sheets", [])
-    indicators: List[Dict] = []
-    for sheet in sheets:
-        for ind in sheet.get("indicators", []):
-            indicators.append(
-                {
-                    "sheet_name": sheet.get("sheet_name"),
-                    "subsection": ind.get("subsection"),
-                    "subsubsection": ind.get("subsubsection"),
-                    "indicator_name": ind.get("indicator_name"),
-                    "normalized_indicator_name": ind.get("normalized_indicator_name"),
-                    "definition": ind.get("definition") or "",
-                    "question": ind.get("question") or "",
-                    "application_context": ind.get("application_context") or "",
-                    "keywords": ind.get("keywords") or [],
-                }
+# ---- Helpers -----------------------------------------------------------------
+def stable_id(normalized_indicator_name: str) -> uuid.UUID:
+    """Derive a stable, Qdrant-valid UUID from normalized name"""
+    return uuid.uuid5(uuid.NAMESPACE_URL, normalized_indicator_name)
+
+
+def resolve_point_id(rec: dict[str, Any]) -> uuid.UUID:
+    """Always derive a stable UUID from the normalized name (ignore provided ids)."""
+    return stable_id(rec["normalized_indicator_name"])
+
+
+def load_indicators(path: Path) -> list[dict[str, Any]]:
+    """Load indicators and attach sheet_name to each entry."""
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or "sheets" not in data:
+        raise ValueError("Expected object with 'sheets' array in JSON file.")
+    records: list[dict[str, Any]] = []
+    for sheet in data.get("sheets", []):
+        sheet_name = sheet.get("sheet_name")
+        for rec in sheet.get("indicators", []):
+            rec = dict(rec)
+            rec["sheet_name"] = sheet_name
+            records.append(rec)
+    return records
+
+
+def validate_record(rec: dict[str, Any]) -> None:
+    required = [
+        "indicator_name",
+        "normalized_indicator_name",
+        "definition",
+        "question",
+        "application_context",
+        "keywords",
+    ]
+    missing = [k for k in required if k not in rec or rec[k] in (None, "", [])]
+    if missing:
+        raise ValueError(f"Missing required fields {missing} for record {rec}")
+    if not isinstance(rec["keywords"], list):
+        raise ValueError("keywords must be a list")
+
+
+def to_payload(rec: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "indicator_name": rec.get("indicator_name"),
+        "normalized_indicator_name": rec.get("normalized_indicator_name"),
+        "definition": rec.get("definition"),
+        "question": rec.get("question"),
+        "application_context": rec.get("application_context"),
+        "keywords": rec.get("keywords", []),
+        "sheet_name": rec.get("sheet_name"),
+        "subsection": rec.get("subsection"),
+        "subsubsection": rec.get("subsubsection"),
+    }
+    return payload
+
+
+def ensure_collection(recreate: bool = False) -> None:
+    client = vector_store.client  # reuse the shared client
+    exists = client.collection_exists(COLLECTION)
+    if exists and recreate:
+        logger.info("Recreating collection %s", COLLECTION, extra={"module_name": ModuleName.INGESTION})
+        client.delete_collection(collection_name=COLLECTION)
+        exists = False
+    if not exists:
+        logger.info(
+            "Creating collection %s with 3 dense vectors (dim=%s, metric=Cosine)",
+            COLLECTION,
+            EMBED_DIM,
+            extra={"module_name": ModuleName.INGESTION},
+        )
+        client.create_collection(
+            collection_name=COLLECTION,
+            vectors_config={
+                DEF_VECTOR_NAME: qm.VectorParams(size=EMBED_DIM, distance=qm.Distance.COSINE),
+                QUESTION_VECTOR_NAME: qm.VectorParams(size=EMBED_DIM, distance=qm.Distance.COSINE),
+                CONTEXT_VECTOR_NAME: qm.VectorParams(size=EMBED_DIM, distance=qm.Distance.COSINE),
+            },
+            sparse_vectors_config={SPARSE_VECTOR_NAME: qm.SparseVectorParams()},
+        )
+
+
+def embed_batch(texts: Iterable[str]) -> list[list[float]]:
+    return embeddings.embed_texts(texts, model=EMBED_MODEL, dimensions=EMBED_DIM)
+
+
+def sparse_from_keywords(keywords: list[str]) -> tuple[qm.SparseVector, str]:
+    if not keywords:
+        return qm.SparseVector(indices=[], values=[]), ""
+    seen: set[str] = set()
+    tokens: list[str] = []
+    for kw in keywords:
+        for tok in kw.lower().split():
+            if tok and tok not in seen:
+                seen.add(tok)
+                tokens.append(tok)
+    if not tokens:
+        return qm.SparseVector(indices=[], values=[]), ""
+    text = " ".join(tokens)
+    emb = next(sparse_model.embed([text]))
+    # fastembed SparseEmbedding has numpy arrays; convert to lists for Qdrant model
+    return qm.SparseVector(indices=emb.indices.tolist(), values=emb.values.tolist()), text
+
+
+def points_for_batch(
+    recs: list[dict[str, Any]],
+    def_vecs: list[list[float]],
+    q_vecs: list[list[float]],
+    ctx_vecs: list[list[float]],
+    sparse_vecs: list[qm.SparseVector],
+) -> list[qm.PointStruct]:
+    if not (len(recs) == len(def_vecs) == len(q_vecs) == len(ctx_vecs) == len(sparse_vecs)):
+        raise ValueError("Record/vector count mismatch")
+    points: list[qm.PointStruct] = []
+    for rec, dvec, qvec, cvec, svec in zip(recs, def_vecs, q_vecs, ctx_vecs, sparse_vecs):
+        pid = resolve_point_id(rec)
+        payload = to_payload(rec)
+        points.append(
+            qm.PointStruct(
+                id=pid,
+                vector={
+                    DEF_VECTOR_NAME: dvec,
+                    QUESTION_VECTOR_NAME: qvec,
+                    CONTEXT_VECTOR_NAME: cvec,
+                    SPARSE_VECTOR_NAME: svec,
+                },
+                payload=payload,
             )
-    return indicators
+        )
+    return points
 
 
-def _batch(iterable: Sequence, size: int) -> Iterable[Sequence]:
-    for i in range(0, len(iterable), size):
-        yield iterable[i : i + size]
-
-
-def ingest_baseline_hybrid(
-    collection_name: str,
-    vector_store_cfg: Dict,
-    embedding_model: str,
-    data_path: Path,
-) -> int:
-    """
-    Ingest all indicators into Qdrant using named vectors.
-
-    Returns number of upserted points.
-    """
-    indicators = _load_indicators(data_path)
-    if not indicators:
-        return 0
-
-    total_indicators = len(indicators)
-    print(
-        f"Starting ingestion into collection '{collection_name}' with {total_indicators} indicators (batch size={BATCH_SIZE})"
+# ---- Main ingestion ----------------------------------------------------------
+def ingest() -> None:
+    setup_logging(settings.log_level)
+    logger.info(
+        "Starting ingestion: collection=%s model=%s recreate=%s dry_run=%s",
+        COLLECTION,
+        EMBED_MODEL,
+        RECREATE,
+        DRY_RUN,
+        extra={"module_name": ModuleName.INGESTION},
     )
 
-    qdrant_adapter.ensure_named_collection(collection_name, vector_store_cfg, force_recreate=False)
+    ensure_collection(recreate=RECREATE)
 
-    total = 0
-    for batch_idx, batch in enumerate(_batch(indicators, BATCH_SIZE), start=1):
-        batch_start = time.perf_counter()
-        points = []
+    records = load_indicators(INPUT_PATH)
+    if LIMIT:
+        records = records[:LIMIT]
+    logger.info("Loaded %s records from %s", len(records), INPUT_PATH, extra={"module_name": ModuleName.INGESTION})
 
-        # Dense embeddings: embed each field separately to match named vectors.
-        definitions = [item["definition"] for item in batch]
-        questions = [item["question"] for item in batch]
-        applications = [item["application_context"] for item in batch]
+    # Batch process
+    for start in range(0, len(records), BATCH_SIZE):
+        batch = records[start : start + BATCH_SIZE]
+        # validate
+        for rec in batch:
+            validate_record(rec)
 
-        definition_vecs = openai_embedding_adapter.embed(definitions, model=embedding_model)
-        question_vecs = openai_embedding_adapter.embed(questions, model=embedding_model)
-        application_vecs = openai_embedding_adapter.embed(applications, model=embedding_model)
+        def_texts = [r.get("definition", "") for r in batch]
+        q_texts = [r.get("question", "") for r in batch]
+        ctx_texts = [r.get("application_context", "") for r in batch]
 
-        # Sparse embeddings from keywords.
-        keyword_texts = [" ".join(item["keywords"]) for item in batch]
-        sparse_vecs = list(sparse_embedding_adapter.encode(keyword_texts))
+        logger.debug(
+            "Embedding batch %s-%s (size=%s)",
+            start,
+            start + len(batch) - 1,
+            len(batch),
+            extra={"module_name": ModuleName.INGESTION},
+        )
+        def_vecs = embed_batch(def_texts)
+        q_vecs = embed_batch(q_texts)
+        ctx_vecs = embed_batch(ctx_texts)
+        sparse_results = [sparse_from_keywords(r.get("keywords", [])) for r in batch]
+        sparse_vecs = [sr[0] for sr in sparse_results]
+        sparse_texts = [sr[1] for sr in sparse_results]
+        logger.debug(
+            "Embedding complete for batch %s-%s",
+            start,
+            start + len(batch) - 1,
+            extra={"module_name": ModuleName.INGESTION},
+        )
 
-        for idx, item in enumerate(batch):
-            dense_vectors = {
-                "definition": definition_vecs[idx],
-                "question": question_vecs[idx],
-                "application": application_vecs[idx],
-            }
-            sparse = sparse_vecs[idx]
-            sparse_vec = qdrant_adapter.make_sparse_vector(sparse.indices, sparse.values)
+        pts = points_for_batch(batch, def_vecs, q_vecs, ctx_vecs, sparse_vecs)
 
-            payload = {
-                "indicator_name": item["indicator_name"],
-                "normalized_indicator_name": item["normalized_indicator_name"],
-                "subsection": item["subsection"],
-                "subsubsection": item["subsubsection"],
-                "definition": item["definition"],
-                "question": item["question"],
-                "application_context": item["application_context"],
-                "keywords": item["keywords"],
-                "source": "country_indicators.json",
-                "sheet_name": item["sheet_name"],
-            }
-
-            raw_id = item["normalized_indicator_name"] or item["indicator_name"] or f"idx-{total+idx}"
-            # Qdrant Cloud requires point IDs to be UUID or unsigned int; use stable UUID5.
-            point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, raw_id))
-            points.append(
-                qdrant_adapter.build_point(
-                    point_id=point_id,
-                    dense_vectors=dense_vectors,
-                    sparse_vector=sparse_vec,
-                    payload=payload,
+        logger.info(
+            "Upserting batch %s-%s (size=%s)",
+            start,
+            start + len(batch) - 1,
+            len(batch),
+            extra={"module_name": ModuleName.INGESTION},
+        )
+        if logger.isEnabledFor(10):  # DEBUG
+            logger.debug("Sample payload: %s", pts[0].payload, extra={"module_name": ModuleName.INGESTION})
+            for rec, dtext, qtext, ctext, kwtext in list(
+                zip(batch, def_texts, q_texts, ctx_texts, sparse_texts)
+            )[:10]:
+                pid = rec.get("id") or stable_id(rec["normalized_indicator_name"])
+                logger.debug(
+                    "Record %s keywords_dedup=%r",
+                    pid,
+                    kwtext,
+                    extra={"module_name": ModuleName.INGESTION},
                 )
-            )
 
-        print(
-                f"Batch {batch_idx}: dense shapes def={len(definition_vecs[0]) if definition_vecs else 0} q={len(question_vecs[0]) if question_vecs else 0} app={len(application_vecs[0]) if application_vecs else 0} | sparse count={len(sparse_vecs)}"
-            )
-        print(
-            f"Batch {batch_idx}: point IDs={[p.id for p in points]}"
+        if DRY_RUN:
+            continue
+        res = vector_store.upsert(COLLECTION, pts, wait=True)
+        logger.info(
+            "Upserted batch %s-%s (size=%s) result=%s",
+            start,
+            start + len(batch) - 1,
+            len(batch),
+            res,
+            extra={"module_name": ModuleName.INGESTION},
         )
 
-        try:
-            qdrant_adapter.upsert_points(collection_name, points)
-        except Exception as exc:  # pragma: no cover - operational logging
-            print(
-                f"Upsert failed for collection '{collection_name}', batch {batch_idx} (size={len(points)}): {exc}"
-            )
-            raise
+    logger.info("Ingestion complete", extra={"module_name": ModuleName.INGESTION})
 
-        total += len(points)
-        batch_ms = (time.perf_counter() - batch_start) * 1000
-        print(
-            f"Batch {batch_idx} upserted {len(points)} points (cumulative={total}) in {batch_ms:.1f} ms"
-        )
 
-    print(
-        f"Ingestion complete for collection '{collection_name}': {total} points upserted from {total_indicators} indicators."
-    )
-    return total
+def main() -> None:
+    ingest()
+
+
+if __name__ == "__main__":
+    main()
 

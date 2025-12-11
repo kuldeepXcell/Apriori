@@ -42,7 +42,18 @@ def setup_logging(level: str = "INFO") -> None:
         handlers=[handler],
     )
     # Tame noisy third-party debug logs to keep app logs readable.
-    for noisy in ("httpx", "httpcore", "openai", "qdrant_client"):
+    noisy_loggers: Iterable[str] = (
+        "httpx",
+        "httpcore",
+        "openai",
+        "qdrant_client",
+        "watchdog",
+        "PIL",
+        "PIL.PngImagePlugin",
+        "urllib3",
+        "streamlit.runtime",
+    )
+    for noisy in noisy_loggers:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

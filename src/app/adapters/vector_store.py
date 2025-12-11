@@ -1,85 +1,90 @@
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Optional
 
+from langchain_openai import OpenAIEmbeddings
+from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 
 from app.config.settings import settings
 
-# Reuse one client; can be swapped for grpc via settings if needed later.
+# Shared clients/embedders reused across ingest/retrieval.
 client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+embeddings = OpenAIEmbeddings(
+    model=settings.embedding_model,
+    api_key=settings.openai_api_key,
+    dimensions=settings.embedding_dimensions,
+)
+sparse_embeddings = FastEmbedSparse(model_name=settings.sparse_model_name)
 
 
-def upsert(collection: str, points: Iterable[qm.PointStruct], wait: bool = True) -> Any:
-    """Insert or update points in a collection."""
-    return client.upsert(collection_name=collection, points=list(points), wait=wait)
+def ensure_collection(recreate: bool = False) -> None:
+    """Create the multi-vector + sparse collection if missing."""
+    exists = client.collection_exists(settings.qdrant_collection)
+    if exists and recreate:
+        client.delete_collection(collection_name=settings.qdrant_collection)
+        exists = False
+    if not exists:
+        client.create_collection(
+            collection_name=settings.qdrant_collection,
+            vectors_config={
+                settings.definition_vector_name: qm.VectorParams(
+                    size=settings.embedding_dimensions, distance=qm.Distance.COSINE
+                ),
+                settings.question_vector_name: qm.VectorParams(
+                    size=settings.embedding_dimensions, distance=qm.Distance.COSINE
+                ),
+                settings.context_vector_name: qm.VectorParams(
+                    size=settings.embedding_dimensions, distance=qm.Distance.COSINE
+                ),
+            },
+            sparse_vectors_config={
+                settings.sparse_vector_name: qm.SparseVectorParams(
+                    index=qm.SparseIndexParams(on_disk=False)
+                )
+            },
+        )
 
 
-def search_dense(
-    collection: str,
-    vector_name: str,
-    vector: list[float],
-    limit: int = 10,
-    with_payload: bool = True,
-    with_vectors: bool = False,
-    query_filter: qm.Filter | None = None,
-):
-    """Search against a named dense vector."""
-    return client.search(
-        collection_name=collection,
-        query_vector=(vector_name, vector),
-        limit=limit,
-        with_payload=with_payload,
-        with_vectors=with_vectors,
-        query_filter=query_filter,
-    )
+def upsert_points(points: Iterable[qm.PointStruct], wait: bool = True) -> Any:
+    """Insert or update points in the configured collection."""
+    return client.upsert(collection_name=settings.qdrant_collection, points=list(points), wait=wait)
 
 
-def search_sparse(
-    collection: str,
-    sparse: qm.SparseVector,
-    limit: int = 10,
-    with_payload: bool = True,
-    with_vectors: bool = False,
-    query_filter: qm.Filter | None = None,
-):
-    """Search using a sparse vector representation."""
-    return client.search(
-        collection_name=collection,
-        query_vector=sparse,
-        limit=limit,
-        with_payload=with_payload,
-        with_vectors=with_vectors,
-        query_filter=query_filter,
-    )
-
-
-def search_hybrid(
-    collection: str,
-    dense: tuple[str, list[float]],
-    sparse: qm.SparseVector,
-    alpha: float,
-    limit: int = 10,
-    with_payload: bool = True,
-    with_vectors: bool = False,
-    query_filter: qm.Filter | None = None,
-):
+def get_vector_store(
+    *,
+    vector_name: Optional[str] = None,
+    retrieval_mode: RetrievalMode = RetrievalMode.HYBRID,
+) -> QdrantVectorStore:
     """
-    Hybrid search using named dense vector + sparse vector.
-    Alpha controls weight toward dense (1.0) vs sparse (0.0).
+    Build a LangChain QdrantVectorStore bound to the configured collection.
+
+    vector_name lets us target a specific dense field (definition/question/context).
     """
-    return client.search(
-        collection_name=collection,
-        query_vector=[qm.NamedVector(name=dense[0], vector=dense[1]), sparse],
-        limit=limit,
-        with_payload=with_payload,
-        with_vectors=with_vectors,
-        query_filter=query_filter,
-        search_params=qm.SearchParams(
-            hnsw_ef=128,
-            exact=False,
-            quantization=False,
-            fusion_params=qm.FusionParams(fusion=qm.FusionStrategy.RELATIVE_SCORE, alpha=alpha),
-        ),
+    return QdrantVectorStore(
+        client=client,
+        collection_name=settings.qdrant_collection,
+        embedding=embeddings,
+        sparse_embedding=sparse_embeddings,
+        vector_name=vector_name,
+        sparse_vector_name=settings.sparse_vector_name,
+        retrieval_mode=retrieval_mode,
+        content_payload_key="definition",
     )
+
+
+def hybrid_search(
+    query: str,
+    *,
+    k: int = 10,
+    vector_name: Optional[str] = None,
+    retrieval_mode: RetrievalMode = RetrievalMode.HYBRID,
+) -> list[tuple[Any, float]]:
+    """
+    Perform HYBRID search (dense + sparse) using LangChain vectorstore.
+
+    Returns list of (Document, score) tuples.
+    """
+    store = get_vector_store(vector_name=vector_name, retrieval_mode=retrieval_mode)
+    return store.similarity_search_with_score(query, k=k)
 

@@ -40,7 +40,7 @@ src/app/
       rebuild_collection.py
     retrieval/             # Pipeline-specific retrieval modules
       baseline_hybrid.py    # Dense+sparse fusion for baseline_hybrid
-      multivector_weighted_v1.py  # Weighted named vectors retrieval
+      baseline_hybrid_retrieval.py  # Weighted named vectors retrieval
       hyde.py               # HyDE-specific retrieval
     rerank/                # Pipeline-specific rerank modules
       baseline_hybrid.py

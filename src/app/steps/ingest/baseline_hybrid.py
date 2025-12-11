@@ -7,8 +7,6 @@ import json
 from pathlib import Path
 import sys
 from typing import Any, Iterable, List, Tuple
-
-from fastembed import SparseTextEmbedding  # type: ignore[import]
 from qdrant_client.http import models as qm
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
@@ -22,20 +20,19 @@ from app.core.logging import ModuleName, get_logger, setup_logging
 
 # ---- Defaults (adjust in-file) ------------------------------------------------
 INPUT_PATH = ROOT_DIR / "data" / "country_indicators.json"
-COLLECTION = "baseline_hybrid"
-DEF_VECTOR_NAME = "definition_dense"
-QUESTION_VECTOR_NAME = "question_dense"
-CONTEXT_VECTOR_NAME = "context_dense"
-SPARSE_VECTOR_NAME = "keywords_sparse"
-EMBED_MODEL = "text-embedding-3-small"
-EMBED_DIM = 1536
+COLLECTION = settings.qdrant_collection
+DEF_VECTOR_NAME = settings.definition_vector_name
+QUESTION_VECTOR_NAME = settings.question_vector_name
+CONTEXT_VECTOR_NAME = settings.context_vector_name
+SPARSE_VECTOR_NAME = settings.sparse_vector_name
+EMBED_MODEL = settings.embedding_model
+EMBED_DIM = settings.embedding_dimensions
 BATCH_SIZE = 10
 DRY_RUN = False  # set True to skip upsert
 RECREATE = False
 LIMIT: int | None = 1  # temporary: process only 1 indicator
 
 logger = get_logger(__name__)
-sparse_model = SparseTextEmbedding(model_name=settings.sparse_model_name)
 
 
 # ---- Helpers -----------------------------------------------------------------
@@ -97,28 +94,10 @@ def to_payload(rec: dict[str, Any]) -> dict[str, Any]:
 
 
 def ensure_collection(recreate: bool = False) -> None:
-    client = vector_store.client  # reuse the shared client
-    exists = client.collection_exists(COLLECTION)
-    if exists and recreate:
-        logger.info("Recreating collection %s", COLLECTION, extra={"module_name": ModuleName.INGESTION})
-        client.delete_collection(collection_name=COLLECTION)
-        exists = False
-    if not exists:
-        logger.info(
-            "Creating collection %s with 3 dense vectors (dim=%s, metric=Cosine)",
-            COLLECTION,
-            EMBED_DIM,
-            extra={"module_name": ModuleName.INGESTION},
-        )
-        client.create_collection(
-            collection_name=COLLECTION,
-            vectors_config={
-                DEF_VECTOR_NAME: qm.VectorParams(size=EMBED_DIM, distance=qm.Distance.COSINE),
-                QUESTION_VECTOR_NAME: qm.VectorParams(size=EMBED_DIM, distance=qm.Distance.COSINE),
-                CONTEXT_VECTOR_NAME: qm.VectorParams(size=EMBED_DIM, distance=qm.Distance.COSINE),
-            },
-            sparse_vectors_config={SPARSE_VECTOR_NAME: qm.SparseVectorParams()},
-        )
+    logger.info(
+        "Ensuring collection %s exists (recreate=%s)", COLLECTION, recreate, extra={"module_name": ModuleName.INGESTION}
+    )
+    vector_store.ensure_collection(recreate=recreate)
 
 
 def embed_batch(texts: Iterable[str]) -> list[list[float]]:
@@ -138,8 +117,8 @@ def sparse_from_keywords(keywords: list[str]) -> tuple[qm.SparseVector, str]:
     if not tokens:
         return qm.SparseVector(indices=[], values=[]), ""
     text = " ".join(tokens)
-    emb = next(sparse_model.embed([text]))
-    # fastembed SparseEmbedding has numpy arrays; convert to lists for Qdrant model
+    emb = vector_store.sparse_embeddings.embed_documents([text])[0]
+    # FastEmbedSparse returns SparseEmbedding with numpy arrays; convert to lists for Qdrant model
     return qm.SparseVector(indices=emb.indices.tolist(), values=emb.values.tolist()), text
 
 
@@ -156,6 +135,7 @@ def points_for_batch(
     for rec, dvec, qvec, cvec, svec in zip(recs, def_vecs, q_vecs, ctx_vecs, sparse_vecs):
         pid = resolve_point_id(rec)
         payload = to_payload(rec)
+        payload["id"] = str(pid)
         points.append(
             qm.PointStruct(
                 id=pid,
@@ -245,7 +225,7 @@ def ingest() -> None:
 
         if DRY_RUN:
             continue
-        res = vector_store.upsert(COLLECTION, pts, wait=True)
+        res = vector_store.upsert_points(pts, wait=True)
         logger.info(
             "Upserted batch %s-%s (size=%s) result=%s",
             start,

@@ -12,4 +12,3 @@ llm_rerank:
     You are a reranker. Given a query and a list of retrieved items,
     return the top items ordered by relevance. Consider semantic closeness
     and factual alignment.
-

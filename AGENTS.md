@@ -21,4 +21,4 @@ new structure decide is in new_structure.md.
 
 Always refer to this new structure befor coding and place things in respective folders/files.
 
-If i ever say remember then add that thing to a file called MEMORIES.md.( you can read from this also.)
+If "remember" is ever mentioned by user then add that thing to a file called MEMORIES.md.( you can read from this also.)

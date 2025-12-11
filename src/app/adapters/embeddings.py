@@ -1,14 +1,35 @@
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
-from openai import OpenAI
+from langchain_openai import OpenAIEmbeddings
 
 from app.config.settings import settings
 
-client = OpenAI(api_key=settings.openai_api_key, timeout=settings.openai_timeout)
+_default_embedder = OpenAIEmbeddings(
+    model=settings.embedding_model,
+    api_key=settings.openai_api_key,
+    dimensions=settings.embedding_dimensions,
+)
 
 
-def embed_texts(texts: Iterable[str], model: str, dimensions: int | None = None) -> list[list[float]]:
+def _build_embedder(model: str | None = None, dimensions: int | None = None) -> OpenAIEmbeddings:
+    if not model and not dimensions:
+        return _default_embedder
+    return OpenAIEmbeddings(
+        model=model or settings.embedding_model,
+        api_key=settings.openai_api_key,
+        dimensions=dimensions or settings.embedding_dimensions,
+    )
+
+
+def embed_texts(texts: Iterable[str], model: str | None = None, dimensions: int | None = None) -> list[list[float]]:
     """Embed a batch of texts and return raw vectors."""
-    response = client.embeddings.create(model=model, input=list(texts), dimensions=dimensions, timeout=settings.openai_timeout)
-    return [item.embedding for item in response.data]
+    embedder = _build_embedder(model=model, dimensions=dimensions)
+    return embedder.embed_documents(list(texts))
+
+
+def embed_query(text: str, model: str | None = None, dimensions: int | None = None) -> list[float]:
+    """Embed a single query text."""
+    embedder = _build_embedder(model=model, dimensions=dimensions)
+    return embedder.embed_query(text)
 

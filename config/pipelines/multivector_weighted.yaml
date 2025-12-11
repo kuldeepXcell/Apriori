@@ -1,5 +1,5 @@
 name: multivector_weighted
-collection_name: baseline_hybrid
+collection_name: baseline_hybrid_auto_keyword
 embedding:
   model: text-embedding-3-small
   dimensions: 1536

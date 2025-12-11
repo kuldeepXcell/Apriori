@@ -6,7 +6,7 @@ import uuid
 import json
 from pathlib import Path
 import sys
-from typing import Any, Iterable, List, Tuple
+from typing import Any, Iterable, List
 from qdrant_client.http import models as qm
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
@@ -17,9 +17,10 @@ if str(SRC_DIR) not in sys.path:
 from app.adapters import embeddings, vector_store
 from app.config.settings import settings
 from app.core.logging import ModuleName, get_logger, setup_logging
+from app.core.langsmith import configure_langsmith
 
 # ---- Defaults (adjust in-file) ------------------------------------------------
-INPUT_PATH = ROOT_DIR / "data" / "country_indicators.json"
+INPUT_PATH = ROOT_DIR / "data" / "combined_indicators.json"
 COLLECTION = settings.qdrant_collection
 DEF_VECTOR_NAME = settings.definition_vector_name
 QUESTION_VECTOR_NAME = settings.question_vector_name
@@ -30,7 +31,10 @@ EMBED_DIM = settings.embedding_dimensions
 BATCH_SIZE = 10
 DRY_RUN = False  # set True to skip upsert
 RECREATE = False
-LIMIT: int | None = 1  # temporary: process only 1 indicator
+LIMIT: int | None = None  # set to an int to cap records
+# Process a sub-range of records (inclusive start, exclusive end); None means default.
+RANGE_START: int | None = None
+RANGE_END: int | None = None
 
 logger = get_logger(__name__)
 
@@ -69,28 +73,67 @@ def validate_record(rec: dict[str, Any]) -> None:
         "definition",
         "question",
         "application_context",
-        "keywords",
     ]
     missing = [k for k in required if k not in rec or rec[k] in (None, "", [])]
     if missing:
         raise ValueError(f"Missing required fields {missing} for record {rec}")
-    if not isinstance(rec["keywords"], list):
-        raise ValueError("keywords must be a list")
 
 
 def to_payload(rec: dict[str, Any]) -> dict[str, Any]:
-    payload = {
+    """
+    Build payload for Qdrant.
+
+    LangChain QdrantVectorStore only exposes `payload[metadata_payload_key]`
+    (default "metadata") via Document.metadata, and uses `content_payload_key`
+    for page_content. Per request, we keep the normalized name as page_content
+    and put everything else in metadata.
+    """
+    meta = {
         "indicator_name": rec.get("indicator_name"),
         "normalized_indicator_name": rec.get("normalized_indicator_name"),
-        "definition": rec.get("definition"),
         "question": rec.get("question"),
+        "definition": rec.get("definition"),
         "application_context": rec.get("application_context"),
-        "keywords": rec.get("keywords", []),
         "sheet_name": rec.get("sheet_name"),
         "subsection": rec.get("subsection"),
         "subsubsection": rec.get("subsubsection"),
+        "keywords": rec.get("keywords", []),
+        "sparse_text": rec.get("sparse_text"),
+    }
+    payload = {
+        # page_content will come from this key
+        "normalized_indicator_name": rec.get("normalized_indicator_name"),
+        # metadata consumed by LangChain
+        "metadata": meta,
     }
     return payload
+
+
+def build_sparse_source_text(rec: dict[str, Any]) -> str:
+    """
+    Combine indicator fields into a single BM25-ready string.
+
+    This keeps ingestion free of LLM-based keyword generation by letting the
+    Qdrant BM25 sparse model tokenize the combined text.
+    """
+    parts: list[str] = []
+    for key in [
+        "indicator_name",
+        "normalized_indicator_name",
+        "question",
+        "definition",
+        "application_context",
+        "subsection",
+        "subsubsection",
+    ]:
+        val = rec.get(key)
+        if isinstance(val, str):
+            cleaned = val.strip()
+            if cleaned:
+                parts.append(cleaned)
+    if not parts:
+        raise ValueError("Sparse source text is empty; ensure indicator fields are populated.")
+    return " | ".join(parts)
 
 
 def ensure_collection(recreate: bool = False) -> None:
@@ -104,22 +147,18 @@ def embed_batch(texts: Iterable[str]) -> list[list[float]]:
     return embeddings.embed_texts(texts, model=EMBED_MODEL, dimensions=EMBED_DIM)
 
 
-def sparse_from_keywords(keywords: list[str]) -> tuple[qm.SparseVector, str]:
-    if not keywords:
+def sparse_from_text(text: str) -> tuple[qm.SparseVector, str]:
+    """
+    Generate a sparse vector directly from combined indicator text using BM25.
+    """
+    cleaned = " ".join(text.split())
+    if not cleaned:
         return qm.SparseVector(indices=[], values=[]), ""
-    seen: set[str] = set()
-    tokens: list[str] = []
-    for kw in keywords:
-        for tok in kw.lower().split():
-            if tok and tok not in seen:
-                seen.add(tok)
-                tokens.append(tok)
-    if not tokens:
-        return qm.SparseVector(indices=[], values=[]), ""
-    text = " ".join(tokens)
-    emb = vector_store.sparse_embeddings.embed_documents([text])[0]
-    # FastEmbedSparse returns SparseEmbedding with numpy arrays; convert to lists for Qdrant model
-    return qm.SparseVector(indices=emb.indices.tolist(), values=emb.values.tolist()), text
+    emb = vector_store.sparse_embeddings.embed_documents([cleaned])[0]
+    # FastEmbedSparse may return numpy arrays or plain lists depending on backend.
+    indices = emb.indices.tolist() if hasattr(emb.indices, "tolist") else list(emb.indices)
+    values = emb.values.tolist() if hasattr(emb.values, "tolist") else list(emb.values)
+    return qm.SparseVector(indices=indices, values=values), cleaned
 
 
 def points_for_batch(
@@ -154,6 +193,7 @@ def points_for_batch(
 # ---- Main ingestion ----------------------------------------------------------
 def ingest() -> None:
     setup_logging(settings.log_level)
+    configure_langsmith(settings)
     logger.info(
         "Starting ingestion: collection=%s model=%s recreate=%s dry_run=%s",
         COLLECTION,
@@ -168,7 +208,20 @@ def ingest() -> None:
     records = load_indicators(INPUT_PATH)
     if LIMIT:
         records = records[:LIMIT]
-    logger.info("Loaded %s records from %s", len(records), INPUT_PATH, extra={"module_name": ModuleName.INGESTION})
+
+    # Apply optional range slicing (inclusive start, exclusive end).
+    start_idx = RANGE_START or 0
+    end_idx = RANGE_END if RANGE_END is not None else None
+    records = records[start_idx:end_idx]
+
+    logger.info(
+        "Loaded %s records from %s (range %s:%s)",
+        len(records),
+        INPUT_PATH,
+        start_idx,
+        "" if end_idx is None else end_idx,
+        extra={"module_name": ModuleName.INGESTION},
+    )
 
     # Batch process
     for start in range(0, len(records), BATCH_SIZE):
@@ -180,6 +233,7 @@ def ingest() -> None:
         def_texts = [r.get("definition", "") for r in batch]
         q_texts = [r.get("question", "") for r in batch]
         ctx_texts = [r.get("application_context", "") for r in batch]
+        sparse_source_texts = [build_sparse_source_text(r) for r in batch]
 
         logger.debug(
             "Embedding batch %s-%s (size=%s)",
@@ -191,9 +245,11 @@ def ingest() -> None:
         def_vecs = embed_batch(def_texts)
         q_vecs = embed_batch(q_texts)
         ctx_vecs = embed_batch(ctx_texts)
-        sparse_results = [sparse_from_keywords(r.get("keywords", [])) for r in batch]
+        sparse_results = [sparse_from_text(text) for text in sparse_source_texts]
         sparse_vecs = [sr[0] for sr in sparse_results]
         sparse_texts = [sr[1] for sr in sparse_results]
+        for rec, sparse_text in zip(batch, sparse_texts):
+            rec["sparse_text"] = sparse_text
         logger.debug(
             "Embedding complete for batch %s-%s",
             start,
@@ -212,14 +268,14 @@ def ingest() -> None:
         )
         if logger.isEnabledFor(10):  # DEBUG
             logger.debug("Sample payload: %s", pts[0].payload, extra={"module_name": ModuleName.INGESTION})
-            for rec, dtext, qtext, ctext, kwtext in list(
+            for rec, dtext, qtext, ctext, sparse_text in list(
                 zip(batch, def_texts, q_texts, ctx_texts, sparse_texts)
             )[:10]:
                 pid = rec.get("id") or stable_id(rec["normalized_indicator_name"])
                 logger.debug(
-                    "Record %s keywords_dedup=%r",
+                    "Record %s sparse_text=%r",
                     pid,
-                    kwtext,
+                    sparse_text,
                     extra={"module_name": ModuleName.INGESTION},
                 )
 

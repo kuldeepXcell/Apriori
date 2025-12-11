@@ -1,3 +1,3 @@
 [server]
-enableStaticServing = true
+enableStaticServing = false
 

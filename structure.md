@@ -69,6 +69,7 @@ docs/
   diagrams/, guides/        # Architecture notes, flows, references
 
 # Example minimal pipeline config
+
 name: multivector_weighted_v1
 collection_name: baseline_hybrid
 embedding:
@@ -83,4 +84,3 @@ llm_rerank:
     You are a reranker. Given a query and a list of retrieved items,
     return the top items ordered by relevance. Consider semantic closeness
     and factual alignment.
-

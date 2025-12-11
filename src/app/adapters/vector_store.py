@@ -40,7 +40,9 @@ def ensure_collection(recreate: bool = False) -> None:
             },
             sparse_vectors_config={
                 settings.sparse_vector_name: qm.SparseVectorParams(
-                    index=qm.SparseIndexParams(on_disk=False)
+                    # Enable IDF modifier so BM25-style scoring can be applied server-side.
+                    modifier=qm.Modifier.IDF,
+                    index=qm.SparseIndexParams(on_disk=False),
                 )
             },
         )
@@ -69,7 +71,7 @@ def get_vector_store(
         vector_name=vector_name,
         sparse_vector_name=settings.sparse_vector_name,
         retrieval_mode=retrieval_mode,
-        content_payload_key="definition",
+        content_payload_key="normalized_indicator_name",
     )
 
 

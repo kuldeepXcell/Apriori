@@ -11,6 +11,9 @@ st.set_page_config(
     }
 )
 
+# Initialize DB connection.
+db_conn = st.connection("postgresql", type="sql")
+
 # Custom CSS for styling
 st.markdown("""
     <style>

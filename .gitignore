@@ -148,3 +148,5 @@ cython_debug/
 .python-version
 .augment
 db_schema
+
+.streamlit/secrets.toml

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable
+
+from pydantic import BaseModel, Field
 
 from app.adapters import llm
 from app.config.settings import settings
@@ -62,20 +63,19 @@ def _build_messages(question: str, items: list[dict[str, Any]]) -> list[dict[str
     ]
 
 
-def _parse_response(content: str, valid_ids: set[str]) -> list[str]:
-    try:
-        parsed = json.loads(content)
-    except Exception:
-        return []
-    if not isinstance(parsed, dict):
-        return []
-    selected = parsed.get("selected_ids") or parsed.get("selected") or []
-    if not isinstance(selected, list):
-        return []
+class RerankResponse(BaseModel):
+    """Structured representation of ids selected by the reranker."""
+
+    selected_ids: list[str] = Field(default_factory=list, description="Ordered ids relevant to the prompt.")
+
+
+def _sanitize_selected_ids(selected: Iterable[str], valid_ids: set[str]) -> list[str]:
+    """Filter and deduplicate reranker selections while preserving order."""
+
     filtered: list[str] = []
     for raw in selected:
-        sid = str(raw)
-        if sid in valid_ids:
+        sid = str(raw) if raw is not None else ""
+        if sid and sid in valid_ids:
             filtered.append(sid)
     return _dedup_preserve_order(filtered)
 
@@ -102,17 +102,32 @@ def rerank(
 
     chosen_model = model or DEFAULT_MODEL
     chosen_temp = DEFAULT_TEMPERATURE if temperature is None else temperature
-    messages = _build_messages(question, candidates)
+    pipeline_messages = _build_messages(question, candidates)
     valid_ids = {str(item.get("id", "")) for item in candidates}
 
     try:
-        resp = llm.chat(
-            messages=messages,
+        llm_result = llm.chat(
+            messages=pipeline_messages,
             model=chosen_model,
             temperature=chosen_temp,
-            response_format={"type": "json_object"},
+            response_format=RerankResponse,
+            include_raw=True,
         )
-        content = resp.content if resp else ""
+        parsed = (
+            llm_result.get("parsed")
+            if isinstance(llm_result, dict)
+            else llm_result
+        )
+        raw_message = (
+            llm_result.get("raw") if isinstance(llm_result, dict) else None
+        )
+        raw_content = ""
+        if raw_message is not None:
+            raw_content = (
+                raw_message.content
+                if hasattr(raw_message, "content")
+                else str(raw_message)
+            )
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception(
             "LLM rerank call failed",
@@ -124,10 +139,13 @@ def rerank(
             "raw": f"error: {exc}",
         }
 
-    if not content:
-        return {"selected_ids": [], "llm_rank": {}, "raw": content}
+    if not parsed:
+        return {"selected_ids": [], "llm_rank": {}, "raw": raw_content}
 
-    selected_ids = _parse_response(content, valid_ids)
+    selected_ids = _sanitize_selected_ids(parsed.selected_ids, valid_ids)
+    if not selected_ids:
+        selected_ids = []
+
     llm_rank = {sid: idx + 1 for idx, sid in enumerate(selected_ids)}
 
     logger.debug(
@@ -136,5 +154,4 @@ def rerank(
         selected_ids,
         extra={"module_name": ModuleName.RERANK},
     )
-    return {"selected_ids": selected_ids, "llm_rank": llm_rank, "raw": content}
-
+    return {"selected_ids": selected_ids, "llm_rank": llm_rank, "raw": raw_content}

@@ -24,7 +24,7 @@ from app.steps.retrieval import baseline_hybrid_retrieval as retrieval
 st.set_page_config(
     page_title="Data Visualization | Apriori",
     page_icon=str(FAVICON_PATH) if FAVICON_PATH.exists() else None,
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed",
     menu_items={
         "Get Help": "https://www.aprioriconsultants.com/",
@@ -42,7 +42,7 @@ st.markdown(
     """
     <style>
     .main-header {
-        text-align: center;
+        text-align: left;
         padding: 20px 0;
     }
     .company-logo {
@@ -124,37 +124,89 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
             st.caption("LLM reranker returned no selections; showing weighted results.")
     else:
         st.caption("LLM reranker disabled; showing weighted results.")
-    for idx, item in enumerate(ordered, start=1):
-        payload = item.get("payload", {}) or {}
-        name = payload.get("indicator_name") or "Unknown indicator"
-        question_text = payload.get("question") or ""
-        definition = payload.get("definition") or ""
-        app_ctx = payload.get("application_context") or ""
-        sheet = payload.get("sheet_name") or ""
-        score = item.get("score", 0)
-        selected_by_llm = item.get("selected_by_llm", False)
-        llm_rank = item.get("llm_rank")
 
-        title = f"{idx}. {name} (score: {score:.3f})"
-        if selected_by_llm:
-            rank_label = f"rank {llm_rank}" if llm_rank else "selected"
-            title += f" | LLM {rank_label}"
+    # Render indicators in rows of two columns each
+    for i in range(0, len(ordered), 2):
+        # Create a row with two columns
+        row_col1, row_col2 = st.columns(2)
 
-        # Checkbox stays visible; expander holds details.
-        st.checkbox("Select", key=f"select_{idx}_{item.get('id', name)}")
-        with st.expander(title, expanded=False):
-            if question_text:
-                st.markdown(f"- Question: {question_text}")
-            if definition:
-                st.markdown(f"- Definition: {definition}")
-            if app_ctx:
-                st.markdown(f"- Application context: {app_ctx}")
-            if sheet:
-                st.markdown(f"- Sheet: {sheet}")
-            if selected_by_llm:
-                st.caption("Selected by LLM reranker")
-            elif any_llm_selected:
-                st.caption("Not selected by LLM reranker")
+        # First indicator in this row (left column)
+        if i < len(ordered):
+            with row_col1:
+                item = ordered[i]
+                idx = i + 1
+                payload = item.get("payload", {}) or {}
+                name = payload.get("indicator_name") or "Unknown indicator"
+                question_text = payload.get("question") or ""
+                definition = payload.get("definition") or ""
+                app_ctx = payload.get("application_context") or ""
+                sheet = payload.get("sheet_name") or ""
+                score = item.get("score", 0)
+                selected_by_llm = item.get("selected_by_llm", False)
+                llm_rank = item.get("llm_rank")
+
+                title = f"{idx}. {name} (score: {score:.3f})"
+                if selected_by_llm:
+                    rank_label = f"rank {llm_rank}" if llm_rank else "selected"
+                    title += f" | LLM {rank_label}"
+
+                # Checkbox stays visible; expander holds details.
+                checkbox_col, expander_col = st.columns([0.15, 0.85])  # Small column for checkbox, larger for expander
+                with checkbox_col:
+                    st.checkbox("Select", key=f"select_{idx}_{item.get('id', name)}")
+                with expander_col:
+                    with st.expander(title, expanded=False):
+                        if question_text:
+                            st.markdown(f"- Question: {question_text}")
+                        if definition:
+                            st.markdown(f"- Definition: {definition}")
+                        if app_ctx:
+                            st.markdown(f"- Application context: {app_ctx}")
+                        if sheet:
+                            st.markdown(f"- Sheet: {sheet}")
+                        if selected_by_llm:
+                            st.caption("Selected by LLM reranker")
+                        elif any_llm_selected:
+                            st.caption("Not selected by LLM reranker")
+
+        # Second indicator in this row (right column)
+        if i + 1 < len(ordered):
+            with row_col2:
+                item = ordered[i + 1]
+                idx = i + 2
+                payload = item.get("payload", {}) or {}
+                name = payload.get("indicator_name") or "Unknown indicator"
+                question_text = payload.get("question") or ""
+                definition = payload.get("definition") or ""
+                app_ctx = payload.get("application_context") or ""
+                sheet = payload.get("sheet_name") or ""
+                score = item.get("score", 0)
+                selected_by_llm = item.get("selected_by_llm", False)
+                llm_rank = item.get("llm_rank")
+
+                title = f"{idx}. {name} (score: {score:.3f})"
+                if selected_by_llm:
+                    rank_label = f"rank {llm_rank}" if llm_rank else "selected"
+                    title += f" | LLM {rank_label}"
+
+                # Checkbox stays visible; expander holds details.
+                checkbox_col, expander_col = st.columns([0.15, 0.85])  # Small column for checkbox, larger for expander
+                with checkbox_col:
+                    st.checkbox("Select", key=f"select_{idx}_{item.get('id', name)}")
+                with expander_col:
+                    with st.expander(title, expanded=False):
+                        if question_text:
+                            st.markdown(f"- Question: {question_text}")
+                        if definition:
+                            st.markdown(f"- Definition: {definition}")
+                        if app_ctx:
+                            st.markdown(f"- Application context: {app_ctx}")
+                        if sheet:
+                            st.markdown(f"- Sheet: {sheet}")
+                        if selected_by_llm:
+                            st.caption("Selected by LLM reranker")
+                        elif any_llm_selected:
+                            st.caption("Not selected by LLM reranker")
 
 
 # Process button
@@ -181,5 +233,14 @@ if st.button("Identify Indicators", type="primary", use_container_width=True):
 
 # Output section
 if st.session_state.results:
+    # Render indicators in two columns
     render_results(st.session_state.results, st.session_state.get("use_llm_rerank", False))
+
+    # Submit button below the indicators
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 2, 1])  # Center the button
+    with col2:
+        if st.button("Submit Selection", type="primary", use_container_width=True):
+            # TODO: Add submit functionality here
+            st.info("Submit functionality will be implemented here")
 

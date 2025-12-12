@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "created_date": "2025-12-12",
+    "description": "Simple evaluation dataset for indicator retrieval system"
+  },
+  "eval_cases": [
+    {
+      "question": "What is the GDP of a country?",
+      "indicators": [
+        "nominal_gdp_current_usd",
+        "gdp_per_capita_current_usd"
+      ]
+    },
+    {
+      "question": "How do I measure a country's overall economic size?",
+      "indicators": [
+        "nominal_gdp_current_usd"
+      ]
+    },
+    {
+      "question": "I want to compare living standards between countries",
+      "indicators": [
+        "gdp_per_capita_current_usd"
+      ]
+    }
+  ]
+}

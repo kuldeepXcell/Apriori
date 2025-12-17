@@ -11,6 +11,7 @@ data/                       # Single bucket (raw + derived)
   country_indicators.json   # Canonical source
   processed/                # Optional: chunks, caches, expansions
   indexes/                  # Optional: exported index snapshots
+temporary script/           # One-off helpers for data extraction or migration (non-production)
 
 src/app/
   config/

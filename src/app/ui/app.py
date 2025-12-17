@@ -142,6 +142,7 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
                 app_ctx = payload.get("application_context") or ""
                 sheet = payload.get("sheet_name") or ""
                 score = item.get("score", 0)
+                source_scores = item.get("source_scores") or {}
                 selected_by_llm = item.get("selected_by_llm", False)
                 llm_rank = item.get("llm_rank")
 
@@ -164,6 +165,16 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
                             st.markdown(f"- Application context: {app_ctx}")
                         if sheet:
                             st.markdown(f"- Sheet: {sheet}")
+                        score_cols = st.columns(4)
+                        score_labels = [
+                            ("definition", "Definition"),
+                            ("question", "Question"),
+                            ("context", "Context"),
+                            ("keywords", "Keywords"),
+                        ]
+                        for col, (score_key, label) in zip(score_cols, score_labels):
+                            score_val = source_scores.get(score_key, 0.0)
+                            col.metric(f"{label} score", f"{score_val:.4f}")
                         if selected_by_llm:
                             st.caption("Selected by LLM reranker")
                         elif any_llm_selected:
@@ -181,6 +192,7 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
                 app_ctx = payload.get("application_context") or ""
                 sheet = payload.get("sheet_name") or ""
                 score = item.get("score", 0)
+                source_scores = item.get("source_scores") or {}
                 selected_by_llm = item.get("selected_by_llm", False)
                 llm_rank = item.get("llm_rank")
 
@@ -203,6 +215,16 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
                             st.markdown(f"- Application context: {app_ctx}")
                         if sheet:
                             st.markdown(f"- Sheet: {sheet}")
+                        score_cols = st.columns(4)
+                        score_labels = [
+                            ("definition", "Definition"),
+                            ("question", "Question"),
+                            ("context", "Context"),
+                            ("keywords", "Keywords"),
+                        ]
+                        for col, (score_key, label) in zip(score_cols, score_labels):
+                            score_val = source_scores.get(score_key, 0.0)
+                            col.metric(f"{label} score", f"{score_val:.4f}")
                         if selected_by_llm:
                             st.caption("Selected by LLM reranker")
                         elif any_llm_selected:
@@ -243,4 +265,3 @@ if st.session_state.results:
         if st.button("Submit Selection", type="primary", use_container_width=True):
             # TODO: Add submit functionality here
             st.info("Submit functionality will be implemented here")
-

@@ -1,0 +1,60 @@
+metadata:
+  name: baseline_hybrid
+  description: "Baseline hybrid retrieval tuning example."
+
+ingestion:
+  input_path: data/combined_indicators.json
+  filters:
+    limit: null
+    range: [null, null]
+  collection:
+    name: colors
+    distance: cosine
+  vectors:
+    dense:
+      - key: definition
+        name: definition_dense
+        dimensions: 3072
+        distance: cosine
+      - key: question
+        name: question_dense
+        dimensions: 3072
+        distance: cosine
+      - key: context
+        name: context_dense
+        dimensions: 3072
+        distance: cosine
+    sparse:
+      name: keywords_sparse
+      model: Qdrant/bm25
+      modifier: idf
+  embedding:
+    provider: openai
+    model: text-embedding-3-large
+    dimensions: 3072
+    ingestion_batch_size: 8
+  ingest:
+    dry_run: false
+    force_recreate_collection: true
+    sparse_text_fields:
+      - indicator_name
+      - definition
+      - question
+      - application_context
+
+retrieval:
+  strategy: dense_sparse_fusion
+  vector_top_k: 15
+  sparse_top_k: 30
+  hybrid_mode: HYBRID
+
+rerank:
+  model: gpt-4o-mini
+  temperature: 0.2
+  prompt_template: templates/rerank/baseline.txt
+
+eval:
+  dataset: config/evals/colors_smoke.yaml
+  metrics:
+    - hit_rate@5
+    - mrr@10

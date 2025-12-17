@@ -1048,32 +1048,6 @@
     {
       "subsection": "Fiscal Side",
       "subsubsection": "Revenue and Expenditure",
-      "indicator_name": "Non Tax Revenue ",
-      "normalized_indicator_name": "non_tax_revenue",
-      "definition": "Government revenue from fees, dividends, royalties, fines, and interest.",
-      "question": "What income does the government earn beyond taxes?",
-      "application_context": "Important for understanding alternative fiscal sources and exposure to commodity/sovereign asset cycles.",
-      "keywords": [
-        "what income beyond taxes",
-        "income beyond taxes",
-        "non tax revenue",
-        "non tax revenues",
-        "non_tax_revenue",
-        "ntr",
-        "fees",
-        "dividends",
-        "royalties",
-        "fines",
-        "interest",
-        "fees revenue",
-        "dividends revenue",
-        "royalties revenue",
-        "fines revenue"
-      ]
-    },
-    {
-      "subsection": "Fiscal Side",
-      "subsubsection": "Revenue and Expenditure",
       "indicator_name": "Subsidy & other transfers as % of GDP",
       "normalized_indicator_name": "subsidies_and_transfers_pct_of_gdp",
       "definition": "Total fiscal transfers such as subsidies, grants, and social assistance expressed as % of GDP.",

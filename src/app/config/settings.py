@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
 
@@ -24,9 +25,26 @@ class Settings(BaseSettings):
     langsmith_endpoint: str | None = None
     langsmith_project: str | None = None
     langsmith_workspace_id: str | None = None
+    db_host: str = Field(
+        default="localhost", validation_alias=AliasChoices("db_host", "postgres_host", "host")
+    )
+    db_port: int = Field(
+        default=5432, validation_alias=AliasChoices("db_port", "postgres_port", "port")
+    )
+    db_name: str = Field(
+        default="postgres",
+        validation_alias=AliasChoices("db_name", "postgres_db", "database", "db"),
+    )
+    db_user: str = Field(
+        default="postgres",
+        validation_alias=AliasChoices("db_user", "postgres_user", "db_username"),
+    )
+    db_password: str = Field(
+        default="", validation_alias=AliasChoices("db_password", "postgres_password", "password")
+    )
+    sql_agent_model: str = "gpt-5-mini"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()
-

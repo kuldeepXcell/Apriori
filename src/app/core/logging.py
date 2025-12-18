@@ -52,6 +52,7 @@ def setup_logging(level: str = "INFO") -> None:
         "PIL.PngImagePlugin",
         "urllib3",
         "streamlit.runtime",
+        "langsmith",
     )
     for noisy in noisy_loggers:
         logging.getLogger(noisy).setLevel(logging.WARNING)

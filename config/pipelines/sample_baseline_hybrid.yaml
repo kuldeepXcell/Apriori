@@ -49,7 +49,7 @@ retrieval:
   hybrid_mode: HYBRID
 
 rerank:
-  model: gpt-4o-mini
+  model: gpt-5-mini
   temperature: 0.2
   prompt_template: templates/rerank/baseline.txt
 

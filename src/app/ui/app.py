@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 
 # Project root (two levels above src/)
+# Force reload v7
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 STATIC_DIR = PROJECT_ROOT / "static"
 LOGO_PATH = STATIC_DIR / "AprioriFullLogo.png"
@@ -13,12 +14,15 @@ if src_str in sys.path:
 # Ensure package imports resolve when running as a script with Streamlit
 sys.path.insert(0, src_str)
 
+import pandas as pd
 import streamlit as st
 
+from app.adapters.sql_agent import run_sql_agent
 from app.config.settings import settings
 from app.core.logging import ModuleName, get_logger, setup_logging
 from app.core.langsmith import configure_langsmith
 from app.steps.retrieval import baseline_hybrid_retrieval as retrieval
+from app.ui.components import charts as chart_utils
 
 # Page configuration
 st.set_page_config(
@@ -108,6 +112,30 @@ if total_weight > 1.0:
 use_llm_rerank = st.sidebar.checkbox("Use LLM reranker", value=st.session_state.get("use_llm_rerank", False))
 
 
+def _checkbox_key(item: dict) -> str:
+    payload = item.get("payload") or {}
+    identifier = item.get("id") or payload.get("normalized_indicator_name") or payload.get("indicator_name") or ""
+    if not identifier:
+        identifier = str(len(payload))
+    return f"indicator_select_{identifier}"
+
+
+def collect_selected_indicators(results: list[dict]) -> list[dict]:
+    selections: list[dict] = []
+    for item in results:
+        key = _checkbox_key(item)
+        if st.session_state.get(key):
+            payload = item.get("payload") or {}
+            selections.append(
+                {
+                    "normalized_indicator_name": payload.get("normalized_indicator_name"),
+                    "metadata": payload,
+                    "id": item.get("id") or payload.get("normalized_indicator_name"),
+                }
+            )
+    return selections
+
+
 def render_results(results: list[dict], use_llm_rerank: bool) -> None:
     if not results:
         st.info("No indicators found.")
@@ -154,7 +182,7 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
                 # Checkbox stays visible; expander holds details.
                 checkbox_col, expander_col = st.columns([0.15, 0.85])  # Small column for checkbox, larger for expander
                 with checkbox_col:
-                    st.checkbox("Select", key=f"select_{idx}_{item.get('id', name)}")
+                    st.checkbox("Select", key=_checkbox_key(item))
                 with expander_col:
                     with st.expander(title, expanded=False):
                         if question_text:
@@ -204,7 +232,7 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
                 # Checkbox stays visible; expander holds details.
                 checkbox_col, expander_col = st.columns([0.15, 0.85])  # Small column for checkbox, larger for expander
                 with checkbox_col:
-                    st.checkbox("Select", key=f"select_{idx}_{item.get('id', name)}")
+                    st.checkbox("Select", key=_checkbox_key(item))
                 with expander_col:
                     with st.expander(title, expanded=False):
                         if question_text:
@@ -231,14 +259,150 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
                             st.caption("Not selected by LLM reranker")
 
 
+def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
+    if df.empty:
+        st.warning("The SQL agent returned no rows to visualize.")
+        return
+
+    schema = chart_payload.get("chart_schema") or {}
+    insights = chart_payload.get("insights")
+    if insights:
+        st.markdown("### Insights")
+        st.write(insights)
+
+    with st.sidebar:
+        st.markdown("### Chart Configuration")
+        default_chart = schema.get("default_chart_type", "line").title()
+        palette_names = list(chart_utils.COLOR_PALETTES.keys())
+        palette_name = st.selectbox("Color palette", palette_names, index=0)
+        base_palette = chart_utils.COLOR_PALETTES[palette_name]
+        primary_color = st.color_picker("Primary color", base_palette[0])
+        colors = [primary_color] + base_palette[1:]
+
+        font_choice = st.selectbox("Font family", chart_utils.DEFAULT_FONTS, index=0)
+
+        show_legend_default = schema.get("show_legend", bool(schema.get("group_field")))
+        show_legend = st.checkbox("Show legend", value=show_legend_default)
+        legend_title = st.text_input("Legend title", schema.get("legend_title", ""))
+        legend_position_default = schema.get("legend_position", "top")
+        if legend_position_default not in chart_utils.LEGEND_POSITIONS:
+            legend_position_default = "top"
+        legend_position = st.selectbox(
+            "Legend position",
+            chart_utils.LEGEND_POSITIONS,
+            index=chart_utils.LEGEND_POSITIONS.index(legend_position_default),
+        )
+
+        title_text = st.text_input("Title", schema.get("title", ""))
+        subtitle_text = st.text_input("Subtitle", schema.get("subtitle", ""))
+        title_anchor_default = schema.get("title_anchor", chart_utils.TITLE_ANCHORS[0])
+        if title_anchor_default not in chart_utils.TITLE_ANCHORS:
+            title_anchor_default = chart_utils.TITLE_ANCHORS[0]
+        title_anchor = st.selectbox(
+            "Title alignment",
+            chart_utils.TITLE_ANCHORS,
+            index=chart_utils.TITLE_ANCHORS.index(title_anchor_default),
+        )
+        title_orient_default = schema.get("title_orient", chart_utils.TITLE_ORIENTS[0])
+        if title_orient_default not in chart_utils.TITLE_ORIENTS:
+            title_orient_default = chart_utils.TITLE_ORIENTS[0]
+        title_orient = st.selectbox(
+            "Title position",
+            chart_utils.TITLE_ORIENTS,
+            index=chart_utils.TITLE_ORIENTS.index(title_orient_default),
+        )
+
+        axis_titles = schema.get("axis_titles") or {}
+        axis_x_title = st.text_input("X-axis title", axis_titles.get("x", schema.get("x_field", "x")))
+        axis_y_title = st.text_input("Y-axis title", axis_titles.get("y", schema.get("y_field", "value")))
+
+        interchange_axes = st.checkbox("Interchange X and Y axes", value=False)
+        
+        # Create a copy to avoid modifying the session state schema permanently
+        effective_schema = schema.copy()
+        
+        if interchange_axes:
+            # Swap fields
+            original_x = schema.get("x_field")
+            original_y = schema.get("y_field")
+            effective_schema["x_field"] = original_y
+            effective_schema["y_field"] = original_x
+            # Swap titles
+            axis_x_title, axis_y_title = axis_y_title, axis_x_title
+
+        show_data_labels = st.checkbox(
+            "Show data labels",
+            value=schema.get("show_data_labels", False),
+            help="Displays labels above bars or points.",
+        )
+        show_gridlines = st.checkbox(
+            "Show gridlines",
+            value=schema.get("show_gridlines", True),
+        )
+
+    tabs = st.tabs(["Line", "Bar", "Table"])
+    try:
+        with tabs[0]:
+            line_chart = chart_utils.build_chart(
+                df,
+                effective_schema,
+                chart_type="Line",
+                colors=colors,
+                font=font_choice,
+                legend_title=legend_title,
+                legend_position=legend_position,
+                show_legend=show_legend,
+                title=title_text,
+                subtitle=subtitle_text,
+                title_anchor=title_anchor,
+                title_orient=title_orient,
+                axis_titles={"x": axis_x_title, "y": axis_y_title},
+                show_gridlines=show_gridlines,
+                show_data_labels=show_data_labels,
+            )
+            st.altair_chart(line_chart, use_container_width=True, theme=None)
+
+        with tabs[1]:
+            bar_chart = chart_utils.build_chart(
+                df,
+                effective_schema,
+                chart_type="Bar",
+                colors=colors,
+                font=font_choice,
+                legend_title=legend_title,
+                legend_position=legend_position,
+                show_legend=show_legend,
+                title=title_text,
+                subtitle=subtitle_text,
+                title_anchor=title_anchor,
+                title_orient=title_orient,
+                axis_titles={"x": axis_x_title, "y": axis_y_title},
+                show_gridlines=show_gridlines,
+                show_data_labels=show_data_labels,
+            )
+            st.altair_chart(bar_chart, use_container_width=True, theme=None)
+        with tabs[2]:
+            st.dataframe(df)
+    except Exception as exc:  # pragma: no cover - UI resilience
+        logger.exception("Chart rendering failed", extra={"module_name": ModuleName.UI})
+        st.error(f"Unable to render chart: {exc}")
 # Process button
-if st.button("Identify Indicators", type="primary", use_container_width=True):
+if st.button("Identify Indicators", type="primary", width="stretch"):
     if question:
         if total_weight > 1.0:
             st.error("Total weight must be ≤ 1.0. Please adjust sliders.")
         else:
+            import time
+            start_time = time.time()
+            progress_placeholder = st.empty()
+
+            def update_progress(message, start_time):
+                elapsed = time.time() - start_time
+                progress_placeholder.info(f"{message} ({elapsed:.1f}s)")
+
             with st.spinner("Searching indicators..."):
                 try:
+                    update_progress("Searching indicators", start_time)
                     results = retrieval.search(
                         question=question,
                         weights=weights,
@@ -247,9 +411,13 @@ if st.button("Identify Indicators", type="primary", use_container_width=True):
                     )
                     st.session_state.results = results
                     st.session_state.use_llm_rerank = use_llm_rerank
+                    st.session_state.pop("chart_payload", None)
+                    st.session_state.pop("chart_dataframe", None)
+                    progress_placeholder.empty()
                 except Exception as exc:  # pragma: no cover - UI path
                     logger.exception("Retrieval failed", extra={"module_name": ModuleName.UI})
                     st.error(f"Retrieval failed: {exc}")
+                    progress_placeholder.empty()
     else:
         st.warning("Please ask a question first!")
 
@@ -262,6 +430,36 @@ if st.session_state.results:
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])  # Center the button
     with col2:
-        if st.button("Submit Selection", type="primary", use_container_width=True):
-            # TODO: Add submit functionality here
-            st.info("Submit functionality will be implemented here")
+        if st.button("Submit Selection", type="primary", width="stretch"):
+            selected_indicators = collect_selected_indicators(st.session_state.results)
+            if not question:
+                st.warning("Please provide a question so the SQL agent knows what to answer.")
+            elif not selected_indicators:
+                st.warning("Select at least one indicator to proceed.")
+            else:
+                import time
+                start_time = time.time()
+                progress_placeholder = st.empty()
+
+                def update_progress(message, start_time):
+                    elapsed = time.time() - start_time
+                    progress_placeholder.info(f"{message} ({elapsed:.1f}s)")
+
+                with st.spinner("Querying SQL agent..."):
+                    try:
+                        update_progress("Querying SQL agent", start_time)
+                        agent_payload = run_sql_agent(question, selected_indicators)
+                        rows = agent_payload.get("table_rows") or []
+                        df = pd.DataFrame(rows)
+                        st.session_state.chart_payload = agent_payload
+                        st.session_state.chart_dataframe = df
+                        progress_placeholder.empty()
+                    except Exception as exc:  # pragma: no cover - UI path
+                        logger.exception("SQL agent failed", extra={"module_name": ModuleName.UI})
+                        st.error(f"SQL agent failed: {exc}")
+                        progress_placeholder.empty()
+
+if st.session_state.get("chart_payload") and st.session_state.get("chart_dataframe") is not None:
+    st.markdown("---")
+    st.markdown("## Visualization")
+    render_chart_designer(st.session_state.chart_payload, st.session_state.chart_dataframe)

@@ -150,3 +150,5 @@ cython_debug/
 db_schema
 
 .streamlit/secrets.toml
+
+data/cleaned_excel_sheets/

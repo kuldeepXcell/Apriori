@@ -9,10 +9,9 @@ import sys
 from typing import Any, Iterable, List
 from qdrant_client.http import models as qm
 
-ROOT_DIR = Path(__file__).resolve().parents[4]
-SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+# Add src directory to path for imports
+import sys
+sys.path.insert(0, "/home/ubuntu/Desktop/APriori/Apriori/src")
 
 from app.adapters import embeddings, vector_store
 from app.config.settings import settings
@@ -20,7 +19,7 @@ from app.core.logging import ModuleName, get_logger, setup_logging
 from app.core.langsmith import configure_langsmith
 
 # ---- Defaults (adjust in-file) ------------------------------------------------
-INPUT_PATH = ROOT_DIR / "data" / "combined_indicators.json"
+INPUT_PATH = Path("/home/ubuntu/Desktop/APriori/Apriori/data/all_indicators_final.json")
 COLLECTION = settings.qdrant_collection
 DEF_VECTOR_NAME = settings.definition_vector_name
 QUESTION_VECTOR_NAME = settings.question_vector_name
@@ -31,7 +30,6 @@ EMBED_DIM = settings.embedding_dimensions
 BATCH_SIZE = 10
 DRY_RUN = False  # set True to skip upsert
 RECREATE = False
-LIMIT: int | None = None  # set to an int to cap records
 # Process a sub-range of records (inclusive start, exclusive end); None means default.
 RANGE_START: int | None = None
 RANGE_END: int | None = None
@@ -40,14 +38,9 @@ logger = get_logger(__name__)
 
 
 # ---- Helpers -----------------------------------------------------------------
-def stable_id(normalized_indicator_name: str) -> uuid.UUID:
-    """Derive a stable, Qdrant-valid UUID from normalized name"""
-    return uuid.uuid5(uuid.NAMESPACE_URL, normalized_indicator_name)
-
-
 def resolve_point_id(rec: dict[str, Any]) -> uuid.UUID:
     """Always derive a stable UUID from the normalized name (ignore provided ids)."""
-    return stable_id(rec["normalized_indicator_name"])
+    return uuid.uuid5(uuid.NAMESPACE_URL, rec["normalized_indicator_name"])
 
 
 def load_indicators(path: Path) -> list[dict[str, Any]]:
@@ -206,8 +199,6 @@ def ingest() -> None:
     ensure_collection(recreate=RECREATE)
 
     records = load_indicators(INPUT_PATH)
-    if LIMIT:
-        records = records[:LIMIT]
 
     # Apply optional range slicing (inclusive start, exclusive end).
     start_idx = RANGE_START or 0
@@ -271,7 +262,7 @@ def ingest() -> None:
             for rec, dtext, qtext, ctext, sparse_text in list(
                 zip(batch, def_texts, q_texts, ctx_texts, sparse_texts)
             )[:10]:
-                pid = rec.get("id") or stable_id(rec["normalized_indicator_name"])
+                pid = rec.get("id") or uuid.uuid5(uuid.NAMESPACE_URL, rec["normalized_indicator_name"])
                 logger.debug(
                     "Record %s sparse_text=%r",
                     pid,
@@ -300,4 +291,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

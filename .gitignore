@@ -17,3 +17,5 @@ htmlcov/
 
 # General cache
 .cache/
+
+data/cleaned_excel_sheets/

@@ -16,5 +16,5 @@ dependencies = [
     "langchain-community>=0.4.1",
     "langsmith>=0.1.39",
     "openpyxl>=3.1.5",
-    "toon>=0.15.9",
+    "python-toon>=0.1.3",
 ]

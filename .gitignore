@@ -19,3 +19,7 @@ htmlcov/
 .cache/
 
 data/cleaned_excel_sheets/
+
+.streamlit/secrets.toml
+.idea/
+.vscode/

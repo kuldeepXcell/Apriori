@@ -1,8 +1,9 @@
 from pathlib import Path
 import sys
+import time
+import threading
 
 # Project root (two levels above src/)
-# Force reload v7
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 STATIC_DIR = PROJECT_ROOT / "static"
 LOGO_PATH = STATIC_DIR / "AprioriFullLogo.png"
@@ -270,6 +271,8 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
         st.markdown("### Insights")
         st.write(insights)
 
+    data_quality_notes = chart_payload.get("data_quality_notes")
+
     with st.sidebar:
         st.markdown("### Chart Configuration")
         default_chart = schema.get("default_chart_type", "line").title()
@@ -316,20 +319,6 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
         axis_x_title = st.text_input("X-axis title", axis_titles.get("x", schema.get("x_field", "x")))
         axis_y_title = st.text_input("Y-axis title", axis_titles.get("y", schema.get("y_field", "value")))
 
-        interchange_axes = st.checkbox("Interchange X and Y axes", value=False)
-        
-        # Create a copy to avoid modifying the session state schema permanently
-        effective_schema = schema.copy()
-        
-        if interchange_axes:
-            # Swap fields
-            original_x = schema.get("x_field")
-            original_y = schema.get("y_field")
-            effective_schema["x_field"] = original_y
-            effective_schema["y_field"] = original_x
-            # Swap titles
-            axis_x_title, axis_y_title = axis_y_title, axis_x_title
-
         show_data_labels = st.checkbox(
             "Show data labels",
             value=schema.get("show_data_labels", False),
@@ -345,7 +334,7 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
         with tabs[0]:
             line_chart = chart_utils.build_chart(
                 df,
-                effective_schema,
+                schema,
                 chart_type="Line",
                 colors=colors,
                 font=font_choice,
@@ -360,12 +349,11 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
                 show_gridlines=show_gridlines,
                 show_data_labels=show_data_labels,
             )
-            st.altair_chart(line_chart, use_container_width=True, theme=None)
-
+            st.altair_chart(line_chart, width="stretch")
         with tabs[1]:
             bar_chart = chart_utils.build_chart(
                 df,
-                effective_schema,
+                schema,
                 chart_type="Bar",
                 colors=colors,
                 font=font_choice,
@@ -380,44 +368,58 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
                 show_gridlines=show_gridlines,
                 show_data_labels=show_data_labels,
             )
-            st.altair_chart(bar_chart, use_container_width=True, theme=None)
+            st.altair_chart(bar_chart, width="stretch")
         with tabs[2]:
             st.dataframe(df)
     except Exception as exc:  # pragma: no cover - UI resilience
         logger.exception("Chart rendering failed", extra={"module_name": ModuleName.UI})
         st.error(f"Unable to render chart: {exc}")
+
+    if data_quality_notes:
+        st.markdown("### Data quality notes")
+        st.info(data_quality_notes)
 # Process button
 if st.button("Identify Indicators", type="primary", width="stretch"):
     if question:
         if total_weight > 1.0:
             st.error("Total weight must be ≤ 1.0. Please adjust sliders.")
         else:
-            import time
-            start_time = time.time()
-            progress_placeholder = st.empty()
+            with st.status("Searching indicators...") as status:
+                start_time = time.perf_counter()
+                res = {"results": None, "error": None, "done": False}
 
-            def update_progress(message, start_time):
-                elapsed = time.time() - start_time
-                progress_placeholder.info(f"{message} ({elapsed:.1f}s)")
+                def search_task():
+                    try:
+                        res["results"] = retrieval.search(
+                            question=question,
+                            weights=weights,
+                            top_k=15,
+                            use_llm_rerank=use_llm_rerank,
+                        )
+                    except Exception as e:
+                        res["error"] = e
+                    finally:
+                        res["done"] = True
 
-            with st.spinner("Searching indicators..."):
-                try:
-                    update_progress("Searching indicators", start_time)
-                    results = retrieval.search(
-                        question=question,
-                        weights=weights,
-                        top_k=15,
-                        use_llm_rerank=use_llm_rerank,
-                    )
-                    st.session_state.results = results
+                thread = threading.Thread(target=search_task)
+                thread.start()
+
+                while not res["done"]:
+                    elapsed = time.perf_counter() - start_time
+                    status.update(label=f"Searching indicators... {elapsed:.1f}s")
+                    time.sleep(0.1)
+
+                if res["error"]:
+                    status.update(label="Retrieval failed", state="error")
+                    logger.exception("Retrieval failed", extra={"module_name": ModuleName.UI})
+                    st.error(f"Retrieval failed: {res['error']}")
+                else:
+                    elapsed = time.perf_counter() - start_time
+                    st.session_state.results = res["results"]
                     st.session_state.use_llm_rerank = use_llm_rerank
                     st.session_state.pop("chart_payload", None)
                     st.session_state.pop("chart_dataframe", None)
-                    progress_placeholder.empty()
-                except Exception as exc:  # pragma: no cover - UI path
-                    logger.exception("Retrieval failed", extra={"module_name": ModuleName.UI})
-                    st.error(f"Retrieval failed: {exc}")
-                    progress_placeholder.empty()
+                    status.update(label=f"Found indicators in {elapsed:.2f}s", state="complete")
     else:
         st.warning("Please ask a question first!")
 
@@ -437,27 +439,38 @@ if st.session_state.results:
             elif not selected_indicators:
                 st.warning("Select at least one indicator to proceed.")
             else:
-                import time
-                start_time = time.time()
-                progress_placeholder = st.empty()
+                with st.status("Querying SQL agent...") as status:
+                    start_time = time.perf_counter()
+                    res = {"payload": None, "error": None, "done": False}
 
-                def update_progress(message, start_time):
-                    elapsed = time.time() - start_time
-                    progress_placeholder.info(f"{message} ({elapsed:.1f}s)")
+                    def agent_task():
+                        try:
+                            res["payload"] = run_sql_agent(question, selected_indicators)
+                        except Exception as e:
+                            res["error"] = e
+                        finally:
+                            res["done"] = True
 
-                with st.spinner("Querying SQL agent..."):
-                    try:
-                        update_progress("Querying SQL agent", start_time)
-                        agent_payload = run_sql_agent(question, selected_indicators)
+                    thread = threading.Thread(target=agent_task)
+                    thread.start()
+
+                    while not res["done"]:
+                        elapsed = time.perf_counter() - start_time
+                        status.update(label=f"Querying SQL agent... {elapsed:.1f}s")
+                        time.sleep(0.1)
+
+                    if res["error"]:
+                        status.update(label="SQL agent failed", state="error")
+                        logger.exception("SQL agent failed", extra={"module_name": ModuleName.UI})
+                        st.error(f"SQL agent failed: {res['error']}")
+                    else:
+                        elapsed = time.perf_counter() - start_time
+                        agent_payload = res["payload"]
                         rows = agent_payload.get("table_rows") or []
                         df = pd.DataFrame(rows)
                         st.session_state.chart_payload = agent_payload
                         st.session_state.chart_dataframe = df
-                        progress_placeholder.empty()
-                    except Exception as exc:  # pragma: no cover - UI path
-                        logger.exception("SQL agent failed", extra={"module_name": ModuleName.UI})
-                        st.error(f"SQL agent failed: {exc}")
-                        progress_placeholder.empty()
+                        status.update(label=f"SQL query complete in {elapsed:.2f}s", state="complete")
 
 if st.session_state.get("chart_payload") and st.session_state.get("chart_dataframe") is not None:
     st.markdown("---")

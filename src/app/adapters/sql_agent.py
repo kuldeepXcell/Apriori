@@ -6,54 +6,17 @@ from typing import Any, Mapping, Sequence
 from langchain.agents import create_agent
 from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langchain_community.utilities import SQLDatabase
+from pydantic import ValidationError, create_model, ConfigDict
+from toon.encoder import encode as encode_toon
 
 from app.adapters.llm import create_chat_model
 from app.adapters.postgres import build_connection_uri
+from app.adapters.sql_agent_models import SQLAgentResponse
+from app.adapters.sql_agent_prompts import build_system_prompt
 from app.config.settings import settings
 from app.core.logging import ModuleName, get_logger
 
 logger = get_logger(__name__)
-
-BASE_SYSTEM_PROMPT = """You are a helpful SQL analyst working over a Postgres database.
-- Use the SQLDatabaseToolkit tools: sql_db_list_tables, sql_db_schema, sql_db_query_checker, sql_db_query.
-- Default to listing tables first, but when indicator context supplies the exact tables you may skip straight to sql_db_schema for those tables.
-- Always inspect schemas with sql_db_schema before issuing sql_db_query.
-- Use sql_db_query_checker to validate every SQL query before execution.
-- Limit results to 100 rows unless the user explicitly asks for more.
-- Prefer returning tidy result sets that are easy to turn into charts (one column for x-axis/category, one for value, plus optional grouping column).
-- When writing SQL, alias output columns using snake_case, e.g., SELECT year, avg(value) AS avg_value ...
-- Use double quotes for all JSON keys and string values in the final response.
-
-Final response format (return JSON ONLY, no prose, no Markdown fences):
-{{
-  "insights": "<2-3 bullet sentences summarizing the finding>",
-  "table_rows": [
-    {{"<x_field>": "...", "<y_field>": ..., "<group_field>": "... optional ..."}}
-  ],
-  "chart_schema": {{
-    "x_field": "<column name for horizontal axis>",
-    "y_field": "<column name for value axis>",
-    "group_field": "<optional grouping column or null>",
-    "default_chart_type": "<line|bar|table> (default to line unless user asks otherwise>",
-    "title": "<concise chart title>",
-    "subtitle": "<contextual subtitle or empty string>",
-    "legend_title": "<label for legend, or empty string>",
-    "legend_position": "<top|bottom|left|right>",
-    "axis_titles": {{"x": "<x axis label>", "y": "<y axis label>"}},
-    "show_legend": true,
-    "show_data_labels": false,
-    "show_gridlines": true
-  }}
-}}
-- Provide at most 200 table_rows. Populate chart_schema defaults if the question does not specify them.
-
-Indicator context:
-{indicator_context}
-
-If multiple indicators are provided, decide which table(s) best answer the question and query them accordingly.
-If a question requests a comparison, join or union the relevant tables by shared dimensions (e.g., year, geography) when possible.
-Explain any assumptions inside the final answer through the insights field only."""
-
 
 def _format_sample_table(sample_table: Sequence[Sequence[Any]] | None) -> str:
     if not sample_table:
@@ -67,6 +30,25 @@ def _format_sample_table(sample_table: Sequence[Sequence[Any]] | None) -> str:
     return f"    columns: {', '.join(map(str, header))}\n    sample row: {preview}"
 
 
+def _format_sheet_signature(
+    signature: Mapping[str, Any] | None,
+    fallback_sample_table: Sequence[Sequence[Any]] | None,
+) -> str:
+    if not isinstance(signature, Mapping):
+        return _format_sample_table(fallback_sample_table)
+
+    try:
+        encoded = encode_toon(signature, {"indent": 2, "lengthMarker": False})
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "Failed to encode sheet_signature in TOON format: %s", exc, extra={"module_name": ModuleName.ADAPTER}
+        )
+        return _format_sample_table(fallback_sample_table)
+
+    indented = "\n".join(f"        {line}" for line in encoded.splitlines())
+    return f"    sheet_signature (TOON):\n{indented}"
+
+
 def _format_indicator_context(indicators: Sequence[Mapping[str, Any]]) -> str:
     sections: list[str] = []
     for indicator in indicators:
@@ -77,15 +59,40 @@ def _format_indicator_context(indicators: Sequence[Mapping[str, Any]]) -> str:
         indicator_name = metadata.get("indicator_name", normalized)
         question = metadata.get("question")
         definition = metadata.get("definition")
-        table_hint = metadata.get("sheet_signature", {}).get("sample_table")
+        sheet_signature = metadata.get("sheet_signature")
+        legacy_sample = sheet_signature.get("sample_table") if isinstance(sheet_signature, Mapping) else None
         section_lines = [f"- {indicator_name} (table: {normalized})"]
         if question:
             section_lines.append(f"    question: {question}")
         if definition:
             section_lines.append(f"    definition: {definition}")
-        section_lines.append(_format_sample_table(table_hint))
+        section_lines.append(_format_sheet_signature(sheet_signature, legacy_sample))
         sections.append("\n".join(section_lines))
     return "\n".join(sections) if sections else "  (no indicator context provided)"
+
+def _make_tool_strict(tool: Any) -> Any:
+    """
+    Patch a LangChain tool to be compatible with OpenAI's strict mode.
+    OpenAI requires 'additionalProperties: false' and all properties to be in 'required'.
+    """
+    if not hasattr(tool, "args_schema") or tool.args_schema is None:
+        return tool
+
+    original_schema = tool.args_schema
+
+    # Create a new model where all fields are required and extra properties are forbidden
+    fields = {}
+    for name, field in original_schema.model_fields.items():
+        # (type, ...) means the field is required
+        fields[name] = (field.annotation, ...)
+
+    new_schema = create_model(
+        original_schema.__name__,
+        __config__=ConfigDict(extra="forbid"),
+        **fields
+    )
+    tool.args_schema = new_schema
+    return tool
 
 
 def create_sql_agent(
@@ -106,17 +113,22 @@ def create_sql_agent(
     db = SQLDatabase.from_uri(build_connection_uri())
     llm = create_chat_model(model=settings.sql_agent_model, temperature=0.0)
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
-    tools = toolkit.get_tools()
+    tools = [_make_tool_strict(t) for t in toolkit.get_tools()]
     indicator_context = _format_indicator_context(indicators)
     logger.debug(
         "Initializing SQL agent with %s indicator(s)",
         len(indicators),
         extra={"module_name": ModuleName.ADAPTER},
     )
-    system_prompt = BASE_SYSTEM_PROMPT.format(indicator_context=indicator_context)
+    system_prompt = build_system_prompt(indicator_context)
     if extra_instructions:
         system_prompt = f"{system_prompt}\n\nAdditional guidance:\n{extra_instructions}"
-    agent = create_agent(llm, tools, system_prompt=system_prompt)
+    agent = create_agent(
+        llm,
+        tools,
+        system_prompt=system_prompt,
+        response_format=SQLAgentResponse,
+    )
     return agent
 
 
@@ -141,10 +153,34 @@ def _extract_output_text(agent_result: Any) -> str:
     return str(agent_result)
 
 
-def parse_agent_response(agent_result: Any) -> dict[str, Any]:
-    """
-    Attempt to coerce the agent output into a JSON dict.
-    """
+def parse_agent_response(agent_result: Any) -> SQLAgentResponse:
+    """Parse and validate the agent output into a SQLAgentResponse."""
+    if isinstance(agent_result, SQLAgentResponse):
+        return agent_result
+
+    structured_candidate: Any | None = None
+    if isinstance(agent_result, Mapping):
+        structured_candidate = agent_result.get("structured_response")
+    if structured_candidate is not None:
+        try:
+            response = (
+                structured_candidate
+                if isinstance(structured_candidate, SQLAgentResponse)
+                else SQLAgentResponse.model_validate(structured_candidate)
+            )
+            logger.debug(
+                "SQL agent returned structured_response payload",
+                extra={"module_name": ModuleName.ADAPTER},
+            )
+            return response
+        except ValidationError as exc:
+            logger.error(
+                "Structured response validation failed: %s",
+                exc,
+                extra={"module_name": ModuleName.ADAPTER},
+            )
+            raise ValueError(f"Agent response schema mismatch: {exc}") from exc
+
     raw_text = _extract_output_text(agent_result).strip()
     if raw_text.startswith("```"):
         # Strip optional markdown fences like ```json ... ```
@@ -153,10 +189,10 @@ def parse_agent_response(agent_result: Any) -> dict[str, Any]:
             stripped = stripped[4:].strip()
         raw_text = stripped
     # Try full string first
+    parsed: dict[str, Any] | None = None
     try:
         parsed = json.loads(raw_text)
         logger.debug("SQL agent returned valid JSON payload", extra={"module_name": ModuleName.ADAPTER})
-        return parsed
     except json.JSONDecodeError as exc:
         logger.warning(
             "Direct JSON parse failed: %s | raw=%s",
@@ -171,10 +207,7 @@ def parse_agent_response(agent_result: Any) -> dict[str, Any]:
         snippet = raw_text[start : end + 1]
         try:
             parsed = json.loads(snippet)
-            logger.debug(
-                "Recovered JSON by slicing response", extra={"module_name": ModuleName.ADAPTER}
-            )
-            return parsed
+            logger.debug("Recovered JSON by slicing response", extra={"module_name": ModuleName.ADAPTER})
         except json.JSONDecodeError as exc:
             logger.error(
                 "Snippet JSON parse failed: %s | snippet=%s",
@@ -182,7 +215,15 @@ def parse_agent_response(agent_result: Any) -> dict[str, Any]:
                 snippet[:500],
                 extra={"module_name": ModuleName.ADAPTER},
             )
-    raise ValueError(f"Agent response was not valid JSON: {raw_text}")
+    if parsed is None:
+        raise ValueError(f"Agent response was not valid JSON: {raw_text}")
+    try:
+        response = SQLAgentResponse.model_validate(parsed)
+        logger.debug("Validated SQL agent response via Pydantic", extra={"module_name": ModuleName.ADAPTER})
+        return response
+    except ValidationError as exc:
+        logger.error("Structured response validation failed: %s", exc, extra={"module_name": ModuleName.ADAPTER})
+        raise ValueError(f"Agent response schema mismatch: {exc}") from exc
 
 
 def run_sql_agent(
@@ -202,4 +243,5 @@ def run_sql_agent(
     )
     agent = create_sql_agent(indicators, extra_instructions=extra_instructions)
     result = agent.invoke({"input": query})
-    return parse_agent_response(result)
+    structured = parse_agent_response(result)
+    return structured.model_dump()

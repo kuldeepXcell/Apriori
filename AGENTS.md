@@ -21,6 +21,8 @@ If "remember" is ever mentioned by user then add that thing to a file called MEM
 
 When introducing shared utilities or moving logic between modules (e.g., pipeline loader, registry, executor), confirm the plan with the developer (explain why/alternatives) before relocating code. Keep YAML-driven pipelines aligned with `structure.md`, ensure reusable helpers live under the designated utils/core folders, and record any new standing rules back in this file.
 
+When serializing sheet_signature metadata for LLM prompts, convert the JSON into the TOON format using python-toon so the context stays compact.
+
 Pipeline plan (for any new agent):
 - Goal: pipeline behavior is fully driven by YAML files in `config/pipelines/`.
 - `src/app/pipeline/models.py`: define `PipelineConfig` and nested sections (ingestion, retrieval, rerank, eval) so YAML gets parsed into typed objects.

@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     langsmith_endpoint: str | None = None
     langsmith_project: str | None = None
     langsmith_workspace_id: str | None = None
+    database_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "database_url",
+            "DATABASE_URL",
+            "db_url",
+            "postgres_connection_uri",
+        ),
+    )
     db_host: str = Field(
         default="localhost", validation_alias=AliasChoices("db_host", "postgres_host", "host")
     )

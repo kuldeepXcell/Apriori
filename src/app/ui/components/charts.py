@@ -8,7 +8,7 @@ from typing import Any, Mapping, Sequence
 
 import altair as alt
 import pandas as pd
-from vl_convert import vegalite_to_png
+from pandas.api.types import is_datetime64_any_dtype
 
 # Lightweight palettes + fonts we can reuse across charts
 COLOR_PALETTES: dict[str, list[str]] = {
@@ -96,9 +96,17 @@ def build_chart(
         chart_data[legend_field] = chart_data[group_field]
 
     # Determine ordering for highlight
-    sort_key = pd.to_numeric(chart_data[x_field], errors="coerce")
-    if sort_key.isna().all():
-        sort_key = pd.to_datetime(chart_data[x_field], errors="coerce")
+    x_values = chart_data[x_field]
+    if is_datetime64_any_dtype(x_values):
+        sort_key = pd.Series(x_values, index=chart_data.index)
+    else:
+        sort_key = pd.to_numeric(x_values, errors="coerce")
+        if sort_key.isna().all():
+            try:
+                # format="mixed" avoids repeated fallback parsing warnings on heterogeneous strings
+                sort_key = pd.to_datetime(x_values, errors="coerce", format="mixed")
+            except TypeError:  # Older pandas versions (<2.0) lack format="mixed"
+                sort_key = pd.to_datetime(x_values, errors="coerce")
     if sort_key.isna().all():
         sort_key = pd.RangeIndex(len(chart_data))
     else:
@@ -203,10 +211,3 @@ def build_chart(
 
     return chart
 
-
-def chart_to_png(chart: alt.Chart) -> bytes:
-    """
-    Render an Altair chart into PNG bytes (requires vl-convert).
-    """
-    spec = chart.to_dict()
-    return vegalite_to_png(spec)

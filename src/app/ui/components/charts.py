@@ -10,20 +10,7 @@ import altair as alt
 import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype
 
-# Lightweight palettes + fonts we can reuse across charts
-COLOR_PALETTES: dict[str, list[str]] = {
-    "Apriori Blue": ["#1f77b4", "#3da5d9", "#125e8a"],
-    "Sunset": ["#f5b700", "#f18701", "#f25f5c"],
-    "Emerald": ["#0b8457", "#42b883", "#9fd356"],
-    "Mono": ["#4f5d75", "#bfc0c0", "#ef8354"],
-}
-
-DEFAULT_FONTS = ["Inter", "Roboto", "Source Sans Pro", "Work Sans", "Montserrat"]
-
-LEGEND_POSITIONS = ["top", "bottom", "left", "right"]
-TITLE_ANCHORS = ["start", "middle", "end"]
-TITLE_ORIENTS = ["top", "bottom"]
-
+from .chart_constants import DEFAULT_COLOR_PALETTE, DEFAULT_CHART_WIDTH, DEFAULT_BAR_GUTTER
 
 def _resolve_schema(df: pd.DataFrame, chart_schema: Mapping[str, Any]) -> dict[str, Any]:
     infer = {
@@ -34,15 +21,10 @@ def _resolve_schema(df: pd.DataFrame, chart_schema: Mapping[str, Any]) -> dict[s
     }
     if infer["x_field"] is None or infer["y_field"] is None:
         raise ValueError("Chart schema must supply at least x_field and y_field")
-    infer["default_chart_type"] = (chart_schema.get("default_chart_type") or "line").lower()
     infer["title"] = chart_schema.get("title", "")
     infer["subtitle"] = chart_schema.get("subtitle", "")
     infer["legend_title"] = chart_schema.get("legend_title")
-    infer["legend_position"] = chart_schema.get("legend_position", "top")
     infer["axis_titles"] = chart_schema.get("axis_titles") or {}
-    infer["show_legend"] = bool(chart_schema.get("show_legend", bool(infer["group_field"])))
-    infer["show_gridlines"] = bool(chart_schema.get("show_gridlines", True))
-    infer["show_data_labels"] = bool(chart_schema.get("show_data_labels", False))
     return infer
 
 
@@ -72,7 +54,7 @@ def build_chart(
     y_field = resolved["y_field"]
     group_field = resolved.get("group_field")
 
-    palette = list(colors) if colors else ["#1f77b4"]
+    palette = list(colors) if colors else list(DEFAULT_COLOR_PALETTE)
 
     x_enc = alt.X(
         x_field,
@@ -153,9 +135,43 @@ def build_chart(
         
         chart = chart + highlight_points
     elif chart_type == "bar":
-        chart = base.mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, opacity=0.9)
+        # Calculate bar width based on chart width and number of entries
+        num_entries = len(chart_data[x_field].unique())
+        if num_entries > 0:
+            # bar_width = (total_width - (num_gutters * gutter_size)) / num_entries
+            # We use num_entries + 1 for gutters to have padding on both ends
+            available_width = DEFAULT_CHART_WIDTH - (num_entries + 1) * DEFAULT_BAR_GUTTER
+            calculated_width = max(2, available_width / num_entries)
+            # Cap the width so it doesn't look too chunky with 1-2 bars
+            bar_size = min(calculated_width, 60)
+        else:
+            bar_size = 20
+            
+        chart = base.mark_bar(
+            cornerRadiusTopLeft=4, 
+            cornerRadiusTopRight=4, 
+            opacity=0.9,
+            size=bar_size
+        )
     else:
         chart = base.mark_line(point=True)
+
+    if show_data_labels:
+        label_mark = alt.Chart(chart_data).mark_text(
+            align="left" if chart_type == "line" else "center",
+            baseline="bottom",
+            dx=8 if chart_type == "line" else 0,
+            dy=-5,
+            font=font,
+            color="#0f172a",
+        ).encode(
+            x=x_enc,
+            y=y_enc,
+            text=alt.Text(y_field, format=",.2f"),
+        )
+        if legend_field:
+            label_mark = label_mark.encode(color=alt.Color(legend_field, legend=None, scale=alt.Scale(range=palette)))
+        chart = chart + label_mark
 
     title_params = None
     if title:
@@ -172,42 +188,39 @@ def build_chart(
             dx=60,  # Align title with y-axis (compensating for left padding)
         )
 
-    chart = chart.properties(
-        width=700,
-        height=400,
-        title=title_params,
-        autosize=alt.AutoSizeParams(
-            type='fit',
-            contains='padding'
+    chart = (
+        chart.properties(
+            width=DEFAULT_CHART_WIDTH,
+            height=400,
+            title=title_params,
+            autosize=alt.AutoSizeParams(type="fit", contains="padding"),
         )
-    ).configure_axis(
-        labelFont=font,
-        titleFont=font,
-        labelColor="#64748b",
-        titleColor="#334155",
-        titleFontWeight="bold",
-        gridColor="#f1f5f9",
-        domainColor="#cbd5f5",
-        tickColor="#cbd5f5",
-        labelFontSize=11,
-        titleFontSize=13,
-    ).configure_legend(
-        labelFont=font,
-        titleFont=font,
-        labelColor="#475569",
-        titleColor="#0f172a",
-    ).configure_title(
-        font=font,
-        subtitleFont=font,
-        color="#0f172a",
-        subtitleColor="#475569",
-    ).configure_view(
-        fill="#ffffff",
-        stroke="transparent",
-    ).configure(
-        background="#ffffff",
-        padding={"left": 80, "top": 60, "right": 30, "bottom": 20}
+        .configure(background="#ffffff", padding={"left": 80, "top": 60, "right": 30, "bottom": 20})
+        .configure_view(fill="#ffffff", stroke="transparent")
+        .configure_axis(
+            labelFont=font,
+            titleFont=font,
+            labelColor="#64748b",
+            titleColor="#334155",
+            titleFontWeight="bold",
+            gridColor="#f1f5f9",
+            domainColor="#cbd5f5",
+            tickColor="#cbd5f5",
+            labelFontSize=11,
+            titleFontSize=13,
+        )
+        .configure_legend(
+            labelFont=font,
+            titleFont=font,
+            labelColor="#475569",
+            titleColor="#0f172a",
+        )
+        .configure_title(
+            font=font,
+            subtitleFont=font,
+            color="#0f172a",
+            subtitleColor="#475569",
+        )
     )
 
     return chart
-

@@ -32,6 +32,7 @@ def create_chat_model(model: str, temperature: float = 0.0) -> ChatOpenAI:
         api_key=settings.openai_api_key,
         temperature=temperature,
         timeout=settings.openai_timeout,
+        max_retries=settings.openai_max_retries,
     )
 
 

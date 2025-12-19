@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     openai_api_key: str
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
-    openai_timeout: float = 30.0
+    openai_timeout: float = 90.0
+    openai_max_retries: int = 3
     log_level: str = "INFO"
     sparse_model_name: str = "Qdrant/bm25"
     llm_rerank_model: str = "gpt-5-mini"

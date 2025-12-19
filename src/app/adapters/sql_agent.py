@@ -46,7 +46,10 @@ def _format_sheet_signature(
         return _format_sample_table(fallback_sample_table)
 
     indented = "\n".join(f"        {line}" for line in encoded.splitlines())
-    return f"    sheet_signature (TOON):\n{indented}"
+    return (
+        "    sheet_signature/table schema (TOON Format) — authoritative, skip sql_db_schema unless something is missing:\n"
+        f"{indented}"
+    )
 
 
 def _format_indicator_context(indicators: Sequence[Mapping[str, Any]]) -> str:
@@ -244,4 +247,13 @@ def run_sql_agent(
     agent = create_sql_agent(indicators, extra_instructions=extra_instructions)
     result = agent.invoke({"input": query})
     structured = parse_agent_response(result)
-    return structured.model_dump()
+    payload = structured.model_dump()
+    logger.debug(
+        "SQL agent structured output: %s",
+        payload,
+        extra={
+            "module_name": ModuleName.ADAPTER,
+            "structured_output": payload,
+        },
+    )
+    return payload

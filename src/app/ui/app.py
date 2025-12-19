@@ -24,6 +24,26 @@ from app.core.logging import ModuleName, get_logger, setup_logging
 from app.core.langsmith import configure_langsmith
 from app.steps.retrieval import baseline_hybrid_retrieval as retrieval
 from app.ui.components import charts as chart_utils
+from app.ui.components.chart_constants import (
+    AVAILABLE_FONTS,
+    COLOR_PALETTES,
+    DEFAULT_FONT,
+    DEFAULT_LEGEND_POSITION,
+    DEFAULT_SHOW_DATA_LABELS,
+    DEFAULT_SHOW_GRIDLINES,
+    DEFAULT_SHOW_LEGEND,
+    LEGEND_POSITIONS,
+    TITLE_ANCHORS,
+    TITLE_ORIENTS,
+)
+
+def format_duration(seconds: float, precision: int = 1) -> str:
+    """Format duration in seconds to m s if > 60s."""
+    if seconds < 60:
+        return f"{seconds:.{precision}f}s"
+    minutes = int(seconds // 60)
+    rem_seconds = seconds % 60
+    return f"{minutes}m {rem_seconds:.{precision}f}s"
 
 # Page configuration
 st.set_page_config(
@@ -65,7 +85,7 @@ st.markdown(
         padding: 20px;
         margin-top: 20px;
         min-height: 100px;
-        border-left: 4px solid #1f77b4;
+        border-left: 4px solid #BB271A;
     }
     .stTextInput > label {
         font-size: 16px;
@@ -89,6 +109,8 @@ st.markdown("---")
 # Initialize session state for storing responses
 if "results" not in st.session_state:
     st.session_state.results = []
+if "sql_agent_running" not in st.session_state:
+    st.session_state.sql_agent_running = False
 
 # Input section
 question = st.text_input("Ask a question", placeholder="Type your question here...")
@@ -275,44 +297,44 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
 
     with st.sidebar:
         st.markdown("### Chart Configuration")
-        default_chart = schema.get("default_chart_type", "line").title()
-        palette_names = list(chart_utils.COLOR_PALETTES.keys())
+        palette_names = list(COLOR_PALETTES.keys())
         palette_name = st.selectbox("Color palette", palette_names, index=0)
-        base_palette = chart_utils.COLOR_PALETTES[palette_name]
+        base_palette = COLOR_PALETTES[palette_name]
         primary_color = st.color_picker("Primary color", base_palette[0])
         colors = [primary_color] + base_palette[1:]
 
-        font_choice = st.selectbox("Font family", chart_utils.DEFAULT_FONTS, index=0)
+        font_choice = st.selectbox(
+            "Font family",
+            AVAILABLE_FONTS,
+            index=max(0, AVAILABLE_FONTS.index(DEFAULT_FONT)) if DEFAULT_FONT in AVAILABLE_FONTS else 0,
+        )
 
-        show_legend_default = schema.get("show_legend", bool(schema.get("group_field")))
-        show_legend = st.checkbox("Show legend", value=show_legend_default)
+        show_legend = st.checkbox("Show legend", value=DEFAULT_SHOW_LEGEND)
         legend_title = st.text_input("Legend title", schema.get("legend_title", ""))
-        legend_position_default = schema.get("legend_position", "top")
-        if legend_position_default not in chart_utils.LEGEND_POSITIONS:
-            legend_position_default = "top"
+        legend_position_default = DEFAULT_LEGEND_POSITION
         legend_position = st.selectbox(
             "Legend position",
-            chart_utils.LEGEND_POSITIONS,
-            index=chart_utils.LEGEND_POSITIONS.index(legend_position_default),
+            LEGEND_POSITIONS,
+            index=LEGEND_POSITIONS.index(legend_position_default),
         )
 
         title_text = st.text_input("Title", schema.get("title", ""))
         subtitle_text = st.text_input("Subtitle", schema.get("subtitle", ""))
-        title_anchor_default = schema.get("title_anchor", chart_utils.TITLE_ANCHORS[0])
-        if title_anchor_default not in chart_utils.TITLE_ANCHORS:
-            title_anchor_default = chart_utils.TITLE_ANCHORS[0]
+        title_anchor_default = TITLE_ANCHORS[0]
+        if title_anchor_default not in TITLE_ANCHORS:
+            title_anchor_default = TITLE_ANCHORS[0]
         title_anchor = st.selectbox(
             "Title alignment",
-            chart_utils.TITLE_ANCHORS,
-            index=chart_utils.TITLE_ANCHORS.index(title_anchor_default),
+            TITLE_ANCHORS,
+            index=TITLE_ANCHORS.index(title_anchor_default),
         )
-        title_orient_default = schema.get("title_orient", chart_utils.TITLE_ORIENTS[0])
-        if title_orient_default not in chart_utils.TITLE_ORIENTS:
-            title_orient_default = chart_utils.TITLE_ORIENTS[0]
+        title_orient_default = TITLE_ORIENTS[0]
+        if title_orient_default not in TITLE_ORIENTS:
+            title_orient_default = TITLE_ORIENTS[0]
         title_orient = st.selectbox(
             "Title position",
-            chart_utils.TITLE_ORIENTS,
-            index=chart_utils.TITLE_ORIENTS.index(title_orient_default),
+            TITLE_ORIENTS,
+            index=TITLE_ORIENTS.index(title_orient_default),
         )
 
         axis_titles = schema.get("axis_titles") or {}
@@ -321,12 +343,12 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
 
         show_data_labels = st.checkbox(
             "Show data labels",
-            value=schema.get("show_data_labels", False),
+            value=DEFAULT_SHOW_DATA_LABELS,
             help="Displays labels above bars or points.",
         )
         show_gridlines = st.checkbox(
             "Show gridlines",
-            value=schema.get("show_gridlines", True),
+            value=DEFAULT_SHOW_GRIDLINES,
         )
 
     tabs = st.tabs(["Line", "Bar", "Table"])
@@ -406,7 +428,7 @@ if st.button("Identify Indicators", type="primary", width="stretch"):
 
                 while not res["done"]:
                     elapsed = time.perf_counter() - start_time
-                    status.update(label=f"Searching indicators... {elapsed:.1f}s")
+                    status.update(label=f"Searching indicators... {format_duration(elapsed)}")
                     time.sleep(0.1)
 
                 if res["error"]:
@@ -419,7 +441,7 @@ if st.button("Identify Indicators", type="primary", width="stretch"):
                     st.session_state.use_llm_rerank = use_llm_rerank
                     st.session_state.pop("chart_payload", None)
                     st.session_state.pop("chart_dataframe", None)
-                    status.update(label=f"Found indicators in {elapsed:.2f}s", state="complete")
+                    status.update(label=f"Found indicators in {format_duration(elapsed, 2)}", state="complete")
     else:
         st.warning("Please ask a question first!")
 
@@ -432,13 +454,14 @@ if st.session_state.results:
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])  # Center the button
     with col2:
-        if st.button("Submit Selection", type="primary", width="stretch"):
+        if st.button("Submit Selection", type="primary", width="stretch", disabled=st.session_state.sql_agent_running):
             selected_indicators = collect_selected_indicators(st.session_state.results)
             if not question:
                 st.warning("Please provide a question so the SQL agent knows what to answer.")
             elif not selected_indicators:
                 st.warning("Select at least one indicator to proceed.")
             else:
+                st.session_state.sql_agent_running = True
                 with st.status("Querying SQL agent...") as status:
                     start_time = time.perf_counter()
                     res = {"payload": None, "error": None, "done": False}
@@ -456,7 +479,7 @@ if st.session_state.results:
 
                     while not res["done"]:
                         elapsed = time.perf_counter() - start_time
-                        status.update(label=f"Querying SQL agent... {elapsed:.1f}s")
+                        status.update(label=f"Querying SQL agent... {format_duration(elapsed)}")
                         time.sleep(0.1)
 
                     if res["error"]:
@@ -470,7 +493,8 @@ if st.session_state.results:
                         df = pd.DataFrame(rows)
                         st.session_state.chart_payload = agent_payload
                         st.session_state.chart_dataframe = df
-                        status.update(label=f"SQL query complete in {elapsed:.2f}s", state="complete")
+                        status.update(label=f"SQL query complete in {format_duration(elapsed, 2)}", state="complete")
+                    st.session_state.sql_agent_running = False
 
 if st.session_state.get("chart_payload") and st.session_state.get("chart_dataframe") is not None:
     st.markdown("---")

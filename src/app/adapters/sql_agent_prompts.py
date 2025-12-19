@@ -25,7 +25,7 @@ BASE_SYSTEM_PROMPT = dedent(
     (sql_db_list_tables, sql_db_schema, sql_db_query_checker, sql_db_query).
 
     **Process**
-    1. If the indicator context specifies a table, skip sql_db_list_tables and inspect that table with sql_db_schema.
+    1. If the indicator context includes a `sheet_signature`, treat it as the authoritative schema. Only call sql_db_schema when the signature is missing columns/datatypes. Always skip sql_db_list_tables unless the user explicitly asks for table discovery.
     2. Always run sql_db_query_checker before sql_db_query. Never run INSERT/UPDATE/DELETE.
     3. Keep result sets tidy: one column for categories/time (x axis), one numeric measure (y axis), optional grouping field.
     4. Limit queries to 100 rows unless the user explicitly asks for more.
@@ -43,20 +43,32 @@ BASE_SYSTEM_PROMPT = dedent(
     - When a query fails (bad column, type mismatch, etc.), read the error message, adjust the SQL, and retry.
     - Fall back to a simpler slice (fewer columns, smaller date range) if a complex join/window fails.
     - Reflect the successful fix in the final `insights` when appropriate.
+    - Copy the exact SQL text produced by `sql_db_query_checker` and use it verbatim for the subsequent `sql_db_query` call. Do not re-run the checker for the same query unless you changed the SQL again.
+    - For UNION/UNION ALL, order by a projected alias (`ORDER BY year`) or wrap the UNION inside a subquery/CTE before adding ORDER BY to avoid `ORDER BY` expression errors.
+
+    **Unpivot Shortcut**
+    - When a row stores multiple year/category columns (e.g., 2018-2024), unpivot via UNION ALL or VALUES:
+        SELECT year_label AS year, value
+        FROM (VALUES
+            ('2018', "2018"),
+            ('2019', "2019"),
+            ...
+        ) AS unpivot(year, value)
+      Apply ORDER BY on the alias (e.g., `ORDER BY year::INT` only inside the VALUES table).
+    - Note in `data_quality_notes` that you unpivoted pivoted data for the user.
 
     **Final Response Contract (JSON ONLY)**
     You MUST return JSON that conforms to the SQLAgentResponse Pydantic model:
       - `insights`: 2-3 concise bullet-style sentences (still a single string) describing the strategic takeaway.
       - `table_rows`: Array of row dictionaries (<=200) with snake_case keys matching the SQL output.
       - `chart_schema`: Object with keys
-          * `x_field`, `y_field`, `group_field` (or null), `default_chart_type` (line|bar|table)
-          * `title`, `subtitle`, `legend_title`, `legend_position`
+          * `x_field`, `y_field`, `group_field` (or null)
+          * `title`, `subtitle`, `legend_title`
           * `axis_titles` dict with `x` and `y`
-          * `show_legend`, `show_data_labels`, `show_gridlines`
           * `footnote_left` (definition) and `footnote_right` (last updated detail)
       - `data_quality_notes`: Optional string describing NULL handling or caveats.
 
-    Indicator context (TOON):
+    Indicator context:
     {indicator_context}
     """
 ).strip()
@@ -73,7 +85,7 @@ FEW_SHOT_EXAMPLES = dedent(
     GROUP BY broadcast_year
     ORDER BY broadcast_year;
     Response highlights:
-      - `default_chart_type`: "line", `x_field`: "year", `y_field`: "avg_viewers"
+      - `x_field`: "year", `y_field`: "avg_viewers" with a grouped option left empty
       - Insights mention the peak/decline and what it means for advertising reach.
 
     ### Example 2 – Category Comparison with NULL Handling
@@ -120,6 +132,7 @@ FEW_SHOT_EXAMPLES = dedent(
     LIMIT 12;
     Response notes:
       - Mention that the agent retried with the proper column and that results focus on the latest readings.
+
     """
 ).strip()
 

@@ -1,40 +1,27 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
-
-
-ChartType = Literal["line", "bar", "table"]
-LegendPosition = Literal["top", "bottom", "left", "right"]
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ChartSchema(BaseModel):
     """Visualization schema that the SQL agent must populate."""
+
+    model_config = ConfigDict(extra="ignore")
 
     x_field: str = Field(..., description="Column name for the horizontal axis")
     y_field: str = Field(..., description="Column name for the measured value axis")
     group_field: str | None = Field(
         default=None, description="Optional grouping column for multi-series charts"
     )
-    default_chart_type: ChartType = Field(
-        default="line", description="Suggested chart family (line, bar, or table)"
-    )
     title: str = Field(default="", description="Primary chart title")
     subtitle: str = Field(default="", description="Short subtitle or context")
-    legend_title: str = Field(default="", description="Label displayed above the legend")
-    legend_position: LegendPosition = Field(default="top", description="Legend placement hint")
+    legend_title: str = Field(default="", description="Label displayed above the legend; mandatory")
     axis_titles: dict[str, str] = Field(
         default_factory=lambda: {"x": "", "y": ""},
         description="Axis labels with keys x and y",
     )
-    show_legend: bool = Field(
-        default=True, description="Whether the UI should display the legend (auto true if grouped)"
-    )
-    show_data_labels: bool = Field(
-        default=False, description="Whether to annotate each point/bar with its value"
-    )
-    show_gridlines: bool = Field(default=True, description="Toggle gridline rendering")
     footnote_left: str = Field(
         default="", description="Left-aligned footnote (definition or methodology)"
     )
@@ -52,6 +39,8 @@ class ChartSchema(BaseModel):
 
 class SQLAgentResponse(BaseModel):
     """Structured payload returned by the SQL agent."""
+
+    model_config = ConfigDict(extra="ignore")
 
     insights: str = Field(
         ...,
@@ -75,4 +64,3 @@ class SQLAgentResponse(BaseModel):
         if len(value) > 200:
             return value[:200]
         return value
-

@@ -17,27 +17,31 @@ DOMAIN_CONTEXT = dedent(
 ).strip()
 
 
+# Data Quality Checklist temporarily disabled; re-enable when needed.
+# DATA_QUALITY_CHECKLIST = dedent(
+#     """
+#     **Data Quality Checklist**
+#     - Before the final query, inspect NULL counts in the key metric column and any temporal/category column.
+#     - Use COALESCE, WHERE filters, or `NULLIF` to avoid divide-by-zero scenarios.
+#     - Look for obvious outliers with simple aggregates (MIN/MAX/AVG) when relevant.
+#     - Summarize any issues inside `data_quality_notes`.
+#     - DO NOT mention the process you went through to check for data quality issues.
+#     - ONLY mention the real issues like outliers, missing fields, typos in naming that can lead to inefficent sql querying/filtering.
+#     """
+# ).strip()
 BASE_SYSTEM_PROMPT = dedent(
     """
     {domain_context}
 
     You are an expert Postgres analyst using the LangChain SQLDatabaseToolkit tools
-    (sql_db_list_tables, sql_db_schema, sql_db_query_checker, sql_db_query).
+    (sql_db_list_tables, sql_db_schema) and a bundled safe_sql_query tool that runs checker + query in one call.
 
     **Process**
     1. If the indicator context includes a `sheet_signature`, treat it as the authoritative schema. Only call sql_db_schema when the signature is missing columns/datatypes. Always skip sql_db_list_tables unless the user explicitly asks for table discovery.
-    2. Always run sql_db_query_checker before sql_db_query. Never run INSERT/UPDATE/DELETE.
-    3. Keep result sets tidy: one column for categories/time (x axis), one numeric measure (y axis), optional grouping field.
-    4. Limit queries to 100 rows unless the user explicitly asks for more.
-
-    **Data Quality Checklist**
-    - Before the final query, inspect NULL counts in the key metric column and any temporal/category column.
-    - Use COALESCE, WHERE filters, or `NULLIF` to avoid divide-by-zero scenarios.
-    - Look for obvious outliers with simple aggregates (MIN/MAX/AVG) when relevant.
-    - Summarize any issues inside `data_quality_notes`.
-    - DO NOT mention the process you went through to check for data quality issues.
-    - ONLY mention the real issues like outliers, missing fields, typos in naming that can lead to inefficent sql querying/filtering.
-
+    2. Use safe_sql_query for all SQL execution: it runs sql_db_query_checker first, then executes the validated SQL. Never run INSERT/UPDATE/DELETE.
+    3. Only fetch data needed to answer the question; scope queries to requested entities/time ranges and build charts for that subset only.
+    4. Keep result sets tidy: one column for categories/time (x axis), one numeric measure (y axis), optional grouping field.
+    5. Limit queries to 100 rows unless the user explicitly asks for more.
     **Error Recovery & Reasoning**
     - If `sql_db_query_checker` raises an issue, fix it before calling `sql_db_query`.
     - When a query fails (bad column, type mismatch, etc.), read the error message, adjust the SQL, and retry.
@@ -137,7 +141,7 @@ FEW_SHOT_EXAMPLES = dedent(
 ).strip()
 
 
-def build_system_prompt(indicator_context: str, include_examples: bool = True) -> str:
+def build_system_prompt(indicator_context: str, include_examples: bool = False) -> str:
     """Assemble the final system prompt with optional few-shot examples."""
 
     base = BASE_SYSTEM_PROMPT.format(

@@ -4,6 +4,7 @@ import json
 from typing import Any, Mapping, Sequence
 
 from langchain.agents import create_agent
+from langchain_core.tools import Tool
 from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langchain_community.utilities import SQLDatabase
 from pydantic import ValidationError, create_model, ConfigDict
@@ -117,6 +118,25 @@ def create_sql_agent(
     llm = create_chat_model(model=settings.sql_agent_model, temperature=0.0)
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     tools = [_make_tool_strict(t) for t in toolkit.get_tools()]
+
+    # Wrap checker + query to avoid repeated lint cycles; run checker once, then execute.
+    tool_by_name = {t.name: t for t in tools}
+    checker_tool = tool_by_name.get("sql_db_query_checker")
+    query_tool = tool_by_name.get("sql_db_query")
+
+    if checker_tool and query_tool:
+        def _safe_sql_query(query: str) -> Any:
+            checked_sql = checker_tool.invoke({"query": query})
+            return query_tool.invoke({"query": checked_sql})
+
+        safe_tool = Tool(
+            name="safe_sql_query",
+            description="Validate SQL with sql_db_query_checker, then execute with sql_db_query in one call.",
+            func=_safe_sql_query,
+        )
+        # Replace raw checker/query with the wrapper to discourage redundant calls.
+        tools = [t for t in tools if t.name not in {"sql_db_query_checker", "sql_db_query"}]
+        tools.append(safe_tool)
     indicator_context = _format_indicator_context(indicators)
     logger.debug(
         "Initializing SQL agent with %s indicator(s)",

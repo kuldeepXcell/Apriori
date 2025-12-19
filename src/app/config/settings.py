@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     db_password: str = Field(
         default="", validation_alias=AliasChoices("db_password", "postgres_password", "password")
     )
-    sql_agent_model: str = "gpt-5-mini"
+    sql_agent_model: str = "gpt-5"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

@@ -20,4 +20,7 @@ dependencies = [
     "psycopg[binary]==3.3.2",
     "vl-convert-python==1.8.0",
     "altair==6.0.0",
+    "pandas==2.2.3",
+    "pyarrow==17.0.0",
+    "supabase==2.18.1",
 ]

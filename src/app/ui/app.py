@@ -288,6 +288,11 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
         return
 
     schema = chart_payload.get("chart_schema") or {}
+    answer = chart_payload.get("answer")
+    if answer:
+        st.markdown("### Answer")
+        st.write(answer)
+
     insights = chart_payload.get("insights")
     if insights:
         st.markdown("### Insights")

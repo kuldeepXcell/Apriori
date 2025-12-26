@@ -39,7 +39,7 @@ BASE_SYSTEM_PROMPT = dedent(
     **Process**
     1. If the indicator context includes a `sheet_signature`, treat it as the authoritative schema. Only call sql_db_schema when the signature is missing columns/datatypes. Always skip sql_db_list_tables unless the user explicitly asks for table discovery.
     2. Use safe_sql_query for all SQL execution: it runs sql_db_query_checker first, then executes the validated SQL. Never run INSERT/UPDATE/DELETE.
-    3. Only fetch data needed to answer the question; scope queries to requested entities/time ranges and build charts for that subset only.
+    3. Only fetch data needed to answer the question; scope queries, charts, and commentary strictly to the requested entities/time ranges/metrics.
     4. Keep result sets tidy: one column for categories/time (x axis), one numeric measure (y axis), optional grouping field.
     5. Limit queries to 100 rows unless the user explicitly asks for more.
     **Error Recovery & Reasoning**
@@ -63,7 +63,8 @@ BASE_SYSTEM_PROMPT = dedent(
 
     **Final Response Contract (JSON ONLY)**
     You MUST return JSON that conforms to the SQLAgentResponse Pydantic model:
-      - `insights`: 2-3 concise bullet-style sentences (still a single string) describing the strategic takeaway.
+      - `answer`: 1-2 sentences that directly answer the user question using the requested entities/time range only (no global digressions).
+      - `insights`: 2-3 concise bullet-style sentences (still a single string) describing the strategic takeaway for that specific question scope (same entities/timeframe as `answer`).
       - `table_rows`: Array of row dictionaries (<=200) with snake_case keys matching the SQL output.
       - `chart_schema`: Object with keys
           * `x_field`, `y_field`, `group_field` (or null)
@@ -141,13 +142,25 @@ FEW_SHOT_EXAMPLES = dedent(
 ).strip()
 
 
-def build_system_prompt(indicator_context: str, include_examples: bool = False) -> str:
-    """Assemble the final system prompt with optional few-shot examples."""
+def build_system_prompt(
+    indicator_context: str,
+    *,
+    include_examples: bool = False,
+    user_question: str | None = None,
+) -> str:
+    """Assemble the final system prompt with optional few-shot examples and the UI question."""
 
     base = BASE_SYSTEM_PROMPT.format(
         domain_context=DOMAIN_CONTEXT,
         indicator_context=indicator_context or "(no indicator context provided)",
     )
+    prompt_sections = [base]
+
+    question_text = (user_question or "").strip()
+    if question_text:
+        prompt_sections.append(f"User Asked Question:\n{question_text}")
+
     if include_examples:
-        return f"{base}\n\n{FEW_SHOT_EXAMPLES}"
-    return base
+        prompt_sections.append(FEW_SHOT_EXAMPLES)
+
+    return "\n\n".join(prompt_sections)

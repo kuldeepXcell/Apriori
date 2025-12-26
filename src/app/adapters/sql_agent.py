@@ -102,6 +102,7 @@ def _make_tool_strict(tool: Any) -> Any:
 def create_sql_agent(
     indicators: Sequence[Mapping[str, Any]],
     *,
+    user_question: str | None = None,
     extra_instructions: str | None = None,
 ) -> Any:
     """
@@ -109,6 +110,7 @@ def create_sql_agent(
 
     Args:
         indicators: Sequence of Qdrant-style documents containing metadata + sheet_signature.
+        user_question: Raw question typed in the Streamlit UI; injected into the system prompt.
         extra_instructions: Optional string appended to the system prompt.
 
     Returns:
@@ -143,7 +145,7 @@ def create_sql_agent(
         len(indicators),
         extra={"module_name": ModuleName.ADAPTER},
     )
-    system_prompt = build_system_prompt(indicator_context)
+    system_prompt = build_system_prompt(indicator_context, user_question=user_question)
     if extra_instructions:
         system_prompt = f"{system_prompt}\n\nAdditional guidance:\n{extra_instructions}"
     agent = create_agent(
@@ -250,22 +252,26 @@ def parse_agent_response(agent_result: Any) -> SQLAgentResponse:
 
 
 def run_sql_agent(
-    query: str,
+    question: str,
     indicators: Sequence[Mapping[str, Any]],
     *,
     extra_instructions: str | None = None,
 ) -> dict[str, Any]:
     """
-    Convenience wrapper that instantiates the agent and runs a single query.
+    Convenience wrapper that instantiates the agent and answers a single UI question.
     """
     logger.info(
-        "Running SQL agent for query=%s indicators=%s",
-        query,
+        "Running SQL agent for question=%s indicators=%s",
+        question,
         [i.get("metadata", {}).get("normalized_indicator_name") for i in indicators],
         extra={"module_name": ModuleName.ADAPTER},
     )
-    agent = create_sql_agent(indicators, extra_instructions=extra_instructions)
-    result = agent.invoke({"input": query})
+    agent = create_sql_agent(
+        indicators,
+        user_question=question,
+        extra_instructions=extra_instructions,
+    )
+    result = agent.invoke({"input": question})
     structured = parse_agent_response(result)
     payload = structured.model_dump()
     logger.debug(

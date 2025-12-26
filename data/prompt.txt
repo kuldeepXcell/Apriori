@@ -1,0 +1,54 @@
+I have a new ingestion flow in mind so we need to update the script accordingly.
+
+This will get all the indicators from "/home/ubuntu/Desktop/APriori/apriori/data/Dataset_directory.xlsx" workbook that has cleaning status as "Completed" from country and global consumer sheets. 
+
+we will build this type of metadata for each indicator.
+{
+    "metadata": {
+      "indicator_name": "Sex ratio by age",
+      "normalized_indicator_name": "sex_ratio_by_age",
+      "question": "What is the ratio of males to females by age group?",
+      "definition": "Sex ratio by age group in the population.",
+      "application_context": "Used to analyze population structure and gender balance.",
+      "sheet_name": "Summary",
+      "section": "Population Structure and Dynamics",
+      "subsection": "Age and Gender Composition",
+      "subsubsection": "Sex Ratio",
+      "sparse_text": "Sex ratio by age sex_ratio_by_age ...",
+      "path_in_drive": "downloaded_data/Global Consumer/Population Structure and Dynamics/Age and Gender Composition/sex_ratio_by_age/sex_ratio_by_age_metadata.json",
+      "file_info": {
+        "file_type": "excel_workbooks_converted_to_postgres_tables",
+        "data_source": "Global Consumer",
+        "last_updated_date": "2024-08-01",
+        "number_of_sheets": 5,
+        "sheet_dimensions": [
+          { "sheet_name": "Summary", "rows": 120, "columns": 18 },
+          { "sheet_name": "Age_0_14", "rows": 980, "columns": 12 },
+          { "sheet_name": "Age_15_64", "rows": 980, "columns": 12 },
+          { "sheet_name": "Age_65_plus", "rows": 980, "columns": 12 },
+          { "sheet_name": "Metadata", "rows": 45, "columns": 6 }
+        ]
+      }
+    }
+  }
+  .
+
+this will be added to each indicator when upserting to qdrant. the exact payload for qdrant will be similar to this:
+{"normalized_indicator_name":"gdp_growth_annual_pct","metadata":{"indicator_name":"GDP growth rate (annual %)","normalized_indicator_name":"gdp_growth_annual_pct","question":"How fast is an economy expanding or contracting from one year to the next after adjusting for inflation?","definition":"Gross domest....","application_context":"Us...","sheet_name":"Country","subsection":"Production-level","subsubsection":"Aggregate Output","keywords":null,"sparse_text":"GDP growth rate (an..."},"id":"002d8dcf-02c6-553d-aa41-0fc90b2b23a4"}
+
+where we have normalized indicator name and id outside metadata for diltering, langchain can only access the data under metadata so I have choose this structure.
+
+This script will first count all indicators that are valid ( "Cleaning Status" as "Completed", "Definition" not empty, "Use Case Question" not empty, "Application" not empty, sheet name not empty, "section" not empty, "subsection" not empty, "subsubsection" not empty, "Indicators" not empty, "Normalized Indicators name" not empty ) from country and global consumer sheets.
+then log the count per sheet name.
+
+section, subsection, subsubsection are merged cells and each section has multiple subsections and each subsection has multiple subsubsections , subsubsections have multiple indicators. so for each indicator we need to carefully extract the section, subsection, subsubsection that the indicator belongs to.
+
+so from this we have the first 10 fields of our metadata.
+
+then we use "cleaned_excel_sheets" folder which has a folder for each indicator with it's normalized name as the folder name. this folder has a excel workbook and a json file with data source field and last updated date field so we take those fields from there.
+
+Script will process each indicator one by one and show logs also at important steps. it will fail if any ingestion data, metadata is not found.
+
+we derive number of sheets inside the excel workbook from the workbook and number of rows and columns in each sheet.
+
+we will create a named vector collection with 4 vectors, 3 dense and 1 sparse : same as current collection.

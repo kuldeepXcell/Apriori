@@ -42,6 +42,10 @@ class SQLAgentResponse(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    answer: str = Field(
+        ...,
+        description="Direct 1-2 sentence response that explicitly answers the user question.",
+    )
     insights: str = Field(
         ...,
         description="2-3 bullet-style sentences with the analytical takeaway.",

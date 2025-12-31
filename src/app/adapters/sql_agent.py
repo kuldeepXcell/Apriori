@@ -23,8 +23,8 @@ def _format_indicator_context(indicators: Sequence[Mapping[str, Any]]) -> str:
         metadata = indicator.get("metadata", {})
         normalized = metadata.get("normalized_indicator_name") or indicator.get("normalized_indicator_name")
         indicator_name = metadata.get("indicator_name", normalized)
-        question = metadata.get("question")
         definition = metadata.get("definition")
+        application_context = metadata.get("application_context")
         file_info = metadata.get("file_info") or {}
         sheet_dimensions = file_info.get("sheet_dimensions") or []
         num_sheets = file_info.get("number_of_sheets")
@@ -33,10 +33,10 @@ def _format_indicator_context(indicators: Sequence[Mapping[str, Any]]) -> str:
 
         table_name = normalized if num_sheets == 1 else None
         section_lines = [f"- {indicator_name}"]
-        if question:
-            section_lines.append(f"    question: {question}")
         if definition:
             section_lines.append(f"    definition: {definition}")
+        if application_context:
+            section_lines.append(f"    application_context: {application_context}")
         if table_name:
             section_lines.append(f"    table_name: {table_name}")
         if isinstance(num_sheets, int):

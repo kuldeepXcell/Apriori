@@ -44,7 +44,6 @@ BASE_SYSTEM_PROMPT = dedent(
     5. Limit queries to 100 rows unless the user explicitly asks for more.
     **Error Recovery & Reasoning**
     - When a query fails (bad column, type mismatch, etc.), read the error message, adjust the SQL, and retry.
-    - When a query fails (bad column, type mismatch, etc.), read the error message, adjust the SQL, and retry.
     - Fall back to a simpler slice (fewer columns, smaller date range) if a complex join/window fails.
     - Reflect the successful fix in the final `insights` when appropriate.
     - Avoid rerunning the same failed SQL without a specific fix.

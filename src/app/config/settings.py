@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     llm_rerank_temperature: float = 0.1
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
-    qdrant_collection: str = "baseline_hybrid_auto_keyword"
+    qdrant_collection: str = "baseline_hybrid_auto_keyword_v2"
     definition_vector_name: str = "definition_dense"
     question_vector_name: str = "question_dense"
     context_vector_name: str = "context_dense"

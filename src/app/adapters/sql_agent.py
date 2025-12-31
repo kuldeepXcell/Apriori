@@ -4,11 +4,9 @@ import json
 from typing import Any, Mapping, Sequence
 
 from langchain.agents import create_agent
-from langchain_core.tools import Tool
 from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langchain_community.utilities import SQLDatabase
 from pydantic import ValidationError, create_model, ConfigDict
-from toon.encoder import encode as encode_toon
 
 from app.adapters.llm import create_chat_model
 from app.adapters.postgres import build_connection_uri
@@ -19,58 +17,42 @@ from app.core.logging import ModuleName, get_logger
 
 logger = get_logger(__name__)
 
-def _format_sample_table(sample_table: Sequence[Sequence[Any]] | None) -> str:
-    if not sample_table:
-        return "    sample table: not provided"
-    header = sample_table[0]
-    rows = sample_table[1:]
-    if not rows:
-        return f"    columns: {', '.join(map(str, header))}"
-    first_row = rows[0]
-    preview = ", ".join(f"{col}={val}" for col, val in zip(header, first_row))
-    return f"    columns: {', '.join(map(str, header))}\n    sample row: {preview}"
-
-
-def _format_sheet_signature(
-    signature: Mapping[str, Any] | None,
-    fallback_sample_table: Sequence[Sequence[Any]] | None,
-) -> str:
-    if not isinstance(signature, Mapping):
-        return _format_sample_table(fallback_sample_table)
-
-    try:
-        encoded = encode_toon(signature, {"indent": 2, "lengthMarker": False})
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning(
-            "Failed to encode sheet_signature in TOON format: %s", exc, extra={"module_name": ModuleName.ADAPTER}
-        )
-        return _format_sample_table(fallback_sample_table)
-
-    indented = "\n".join(f"        {line}" for line in encoded.splitlines())
-    return (
-        "    sheet_signature/table schema (TOON Format) — authoritative, skip sql_db_schema unless something is missing:\n"
-        f"{indented}"
-    )
-
-
 def _format_indicator_context(indicators: Sequence[Mapping[str, Any]]) -> str:
     sections: list[str] = []
     for indicator in indicators:
         metadata = indicator.get("metadata", {})
-        normalized = metadata.get("normalized_indicator_name") or indicator.get(
-            "normalized_indicator_name"
-        )
+        normalized = metadata.get("normalized_indicator_name") or indicator.get("normalized_indicator_name")
         indicator_name = metadata.get("indicator_name", normalized)
         question = metadata.get("question")
         definition = metadata.get("definition")
-        sheet_signature = metadata.get("sheet_signature")
-        legacy_sample = sheet_signature.get("sample_table") if isinstance(sheet_signature, Mapping) else None
-        section_lines = [f"- {indicator_name} (table: {normalized})"]
+        file_info = metadata.get("file_info") or {}
+        sheet_dimensions = file_info.get("sheet_dimensions") or []
+        num_sheets = file_info.get("number_of_sheets")
+        if not isinstance(num_sheets, int) and isinstance(sheet_dimensions, list):
+            num_sheets = len(sheet_dimensions)
+
+        table_name = normalized if num_sheets == 1 else None
+        section_lines = [f"- {indicator_name}"]
         if question:
             section_lines.append(f"    question: {question}")
         if definition:
             section_lines.append(f"    definition: {definition}")
-        section_lines.append(_format_sheet_signature(sheet_signature, legacy_sample))
+        if table_name:
+            section_lines.append(f"    table_name: {table_name}")
+        if isinstance(num_sheets, int):
+            section_lines.append(f"    number_of_sheets: {num_sheets}")
+        if isinstance(sheet_dimensions, list) and sheet_dimensions:
+            section_lines.append("    sheets:")
+            for sheet in sheet_dimensions:
+                if not isinstance(sheet, Mapping):
+                    continue
+                sheet_name = sheet.get("sheet_name", "")
+                rows = sheet.get("rows", "")
+                columns = sheet.get("columns", "")
+                sheet_table = sheet_name if num_sheets and num_sheets > 1 else table_name
+                section_lines.append(
+                    f"      - name: {sheet_name} | table: {sheet_table} | rows: {rows} | columns: {columns}"
+                )
         sections.append("\n".join(section_lines))
     return "\n".join(sections) if sections else "  (no indicator context provided)"
 
@@ -119,24 +101,6 @@ def create_sql_agent(
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     tools = [_make_tool_strict(t) for t in toolkit.get_tools()]
 
-    # Wrap checker + query to avoid repeated lint cycles; run checker once, then execute.
-    tool_by_name = {t.name: t for t in tools}
-    checker_tool = tool_by_name.get("sql_db_query_checker")
-    query_tool = tool_by_name.get("sql_db_query")
-
-    if checker_tool and query_tool:
-        def _safe_sql_query(query: str) -> Any:
-            checked_sql = checker_tool.invoke({"query": query})
-            return query_tool.invoke({"query": checked_sql})
-
-        safe_tool = Tool(
-            name="safe_sql_query",
-            description="Validate SQL with sql_db_query_checker, then execute with sql_db_query in one call.",
-            func=_safe_sql_query,
-        )
-        # Replace raw checker/query with the wrapper to discourage redundant calls.
-        tools = [t for t in tools if t.name not in {"sql_db_query_checker", "sql_db_query"}]
-        tools.append(safe_tool)
     indicator_context = _format_indicator_context(indicators)
     logger.debug(
         "Initializing SQL agent with %s indicator(s)",

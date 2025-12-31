@@ -1,0 +1,225 @@
+{
+  "by_domain": {
+    "country": [
+      {
+        "domain": "country",
+        "indicator": "informal_employment_pct_of_non_agricultural_employment_male_and_female",
+        "sheet": "(indicator)",
+        "error": "indicator name exceeds 63 chars"
+      }
+    ],
+    "global_consumer": [
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "ANDAMAN AND NICOBAR ISLANDS",
+        "error": "population_distribution_by_state_region/ANDAMAN AND NICOBAR ISLANDS: mixed types in column '638'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "ANDHRA PRADESH",
+        "error": "population_distribution_by_state_region/ANDHRA PRADESH: mixed types in column '532'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "ARUNACHAL PRADESH",
+        "error": "population_distribution_by_state_region/ARUNACHAL PRADESH: mixed types in column '245'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "ASSAM",
+        "error": "population_distribution_by_state_region/ASSAM: mixed types in column '300'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "BIHAR",
+        "error": "population_distribution_by_state_region/BIHAR: mixed types in column '203'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "CHANDIGARH",
+        "error": "population_distribution_by_state_region/CHANDIGARH: mixed types in column '55'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "CHHATTISGARH",
+        "error": "population_distribution_by_state_region/CHHATTISGARH: mixed types in column '400'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "DADRA AND NAGAR HAVELI",
+        "error": "population_distribution_by_state_region/DADRA AND NAGAR HAVELI: mixed types in column '496'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "DAMAN AND DIU",
+        "error": "population_distribution_by_state_region/DAMAN AND DIU: mixed types in column '494'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "GOA",
+        "error": "population_distribution_by_state_region/GOA: mixed types in column '585'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "GUJARAT",
+        "error": "population_distribution_by_state_region/GUJARAT: mixed types in column '468'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "HARYANA",
+        "error": "population_distribution_by_state_region/HARYANA: mixed types in column '69'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "HIMACHAL PRADESH",
+        "error": "population_distribution_by_state_region/HIMACHAL PRADESH: mixed types in column '23'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "JAMMU AND KASHMIR",
+        "error": "population_distribution_by_state_region/JAMMU AND KASHMIR: mixed types in column '1'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "JHARKHAND",
+        "error": "population_distribution_by_state_region/JHARKHAND: mixed types in column '346'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "KARNATAKA",
+        "error": "population_distribution_by_state_region/KARNATAKA: mixed types in column '555'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "KERALA",
+        "error": "population_distribution_by_state_region/KERALA: mixed types in column '588'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "LAKSHADWEEP",
+        "error": "population_distribution_by_state_region/LAKSHADWEEP: mixed types in column '587'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "MADHYA PRADESH",
+        "error": "population_distribution_by_state_region/MADHYA PRADESH: mixed types in column '418'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "MAHARASHTRA",
+        "error": "population_distribution_by_state_region/MAHARASHTRA: mixed types in column '497'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "MANIPUR",
+        "error": "population_distribution_by_state_region/MANIPUR: mixed types in column '272'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "MEGHALAYA",
+        "error": "population_distribution_by_state_region/MEGHALAYA: mixed types in column '293'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "MIZORAM",
+        "error": "population_distribution_by_state_region/MIZORAM: mixed types in column '281'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "NAGALAND",
+        "error": "population_distribution_by_state_region/NAGALAND: mixed types in column '261'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "NCT OF DELHI",
+        "error": "population_distribution_by_state_region/NCT OF DELHI: mixed types in column '90'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "ORISSA",
+        "error": "population_distribution_by_state_region/ORISSA: mixed types in column '370'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "PONDICHERRY",
+        "error": "population_distribution_by_state_region/PONDICHERRY: mixed types in column '634'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "PUNJAB",
+        "error": "population_distribution_by_state_region/PUNJAB: mixed types in column '35'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "RAJASTHAN",
+        "error": "population_distribution_by_state_region/RAJASTHAN: mixed types in column '99'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "SIKKIM",
+        "error": "population_distribution_by_state_region/SIKKIM: mixed types in column '241'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "TAMIL NADU",
+        "error": "population_distribution_by_state_region/TAMIL NADU: mixed types in column '602'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "TRIPURA",
+        "error": "population_distribution_by_state_region/TRIPURA: mixed types in column '289'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "UTTAR PRADESH",
+        "error": "population_distribution_by_state_region/UTTAR PRADESH: mixed types in column '132'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "UTTARAKHAND",
+        "error": "population_distribution_by_state_region/UTTARAKHAND: mixed types in column '56'"
+      },
+      {
+        "domain": "global_consumer",
+        "indicator": "population_distribution_by_state_region",
+        "sheet": "WEST BENGAL",
+        "error": "population_distribution_by_state_region/WEST BENGAL: mixed types in column '327'"
+      }
+    ]
+  },
+  "total": 36
+}

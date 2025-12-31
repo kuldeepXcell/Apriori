@@ -4,19 +4,12 @@ from __future__ import annotations
 
 import ast
 import json
-import os
-import re
 import sys
 import uuid
-from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
 import openpyxl
-import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
-from supabase import create_client
 from qdrant_client.http import models as qm
 
 # Add src directory to path for imports
@@ -32,10 +25,6 @@ from app.core.langsmith import configure_langsmith
 DATASET_PATH = Path("/home/ubuntu/Desktop/APriori/apriori/data/Dataset_directory.xlsx")
 # Root folder that contains indicator data folders.
 CLEANED_SHEETS_DIR = Path("/home/ubuntu/Desktop/APriori/apriori/data/cleaned_excel_sheets")
-# Supabase Storage config (public bucket).
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
-SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET")
 # Dataset sheets to ingest.
 DATASET_SHEETS = ["Country", "Global Consumer"]
 COLLECTION = settings.qdrant_collection
@@ -46,7 +35,7 @@ SPARSE_VECTOR_NAME = settings.sparse_vector_name
 EMBED_MODEL = settings.embedding_model
 EMBED_DIM = settings.embedding_dimensions
 BATCH_SIZE = 10
-DRY_RUN = True  # set True to skip upsert
+DRY_RUN = False  # set True to skip upsert
 RECREATE = False
 # Process a sub-range of records (inclusive start, exclusive end); None means default.
 RANGE_START: int | None = None
@@ -248,50 +237,6 @@ def select_single_file(paths: list[Path], label: str) -> Path:
     return paths[0]
 
 
-def sanitize_sheet_name(name: str) -> str:
-    """Normalize sheet names for file keys."""
-    return re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
-
-
-def get_supabase_client():
-    """Build a Supabase client for Storage uploads."""
-    if not SUPABASE_URL or not SUPABASE_KEY or not SUPABASE_BUCKET:
-        raise ValueError("Missing SUPABASE_URL, SUPABASE_KEY, or SUPABASE_BUCKET.")
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-def upload_parquet_files(indicator_dir: Path, workbook_path: Path) -> list[dict[str, str]]:
-    """Convert each workbook sheet to parquet and upload to Supabase Storage."""
-    client = get_supabase_client()
-    parquet_files: list[dict[str, str]] = []
-    excel = pd.ExcelFile(workbook_path, engine="openpyxl")
-    relative_dir = indicator_dir.relative_to(CLEANED_SHEETS_DIR).as_posix()
-    bucket = client.storage.from_(SUPABASE_BUCKET)
-    for sheet_name in excel.sheet_names:
-        df = excel.parse(sheet_name)
-        table = pa.Table.from_pandas(df)
-        buffer = BytesIO()
-        pq.write_table(table, buffer)
-        buffer.seek(0)
-        object_path = f"{relative_dir}/{sanitize_sheet_name(sheet_name)}.parquet"
-        bucket.upload(
-            object_path,
-            buffer,
-            {"content-type": "application/x-parquet", "upsert": "true"},
-        )
-        public_url = bucket.get_public_url(object_path)
-        if isinstance(public_url, dict):
-            public_url = public_url.get("publicUrl") or public_url.get("public_url")
-        parquet_files.append(
-            {
-                "sheet_name": sheet_name,
-                "object_path": object_path,
-                "public_url": public_url or "",
-            }
-        )
-    return parquet_files
-
-
 def extract_file_info(indicator_dir: Path) -> tuple[str, str, dict[str, Any]]:
     """Load data_source, last_updated_date, and sheet dimensions from indicator files."""
     # Find and read the metadata JSON file.
@@ -304,15 +249,14 @@ def extract_file_info(indicator_dir: Path) -> tuple[str, str, dict[str, Any]]:
         metadata = ast.literal_eval(raw_metadata)
     if not isinstance(metadata, dict):
         raise ValueError(f"Metadata file did not parse to a dict: {json_path}")
-    data_source = metadata.get("data_source")
+    sources = metadata.get("sources")
     last_updated_date = metadata.get("last_updated_date")
-    if "data_source" not in metadata or "last_updated_date" not in metadata:
-        raise ValueError(f"Missing data_source/last_updated_date keys in {json_path}")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError(f"Missing sources list in {json_path}")
 
     # Find and read the indicator workbook for sheet dimensions.
     workbook_candidates = [p for p in indicator_dir.glob("*.xlsx") if not p.name.startswith("~$")]
     workbook_path = select_single_file(workbook_candidates, "workbook")
-    parquet_files = upload_parquet_files(indicator_dir, workbook_path)
     wb = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
     sheet_dimensions = []
     for sheet in wb.sheetnames:
@@ -342,13 +286,12 @@ def extract_file_info(indicator_dir: Path) -> tuple[str, str, dict[str, Any]]:
 
     file_info = {
         "file_type": "excel_workbooks_converted_to_postgres_tables",
-        "data_source": data_source,
+        "sources": sources,
         "last_updated_date": last_updated_date,
         "number_of_sheets": len(wb.sheetnames),
         "sheet_dimensions": sheet_dimensions,
-        "parquet_files": parquet_files,
     }
-    return str(json_path), str(workbook_path), file_info
+    return indicator_dir.relative_to(CLEANED_SHEETS_DIR).as_posix(), str(workbook_path), file_info
 
 
 def load_indicators_from_dataset() -> list[dict[str, Any]]:

@@ -49,7 +49,7 @@ def build_connection_uri() -> str:
         return _normalize_sqlalchemy_uri(settings.database_url)
     return (
         f"postgresql+psycopg://{settings.db_user}:{settings.db_password}"
-        f"@{settings.db_host}:{settings.db_port}/{settings.db_name}"
+        f"@{settings.db_host}:{settings.db_port}/{settings.db_name}?sslmode=require"
     )
 
 

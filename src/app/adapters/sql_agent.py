@@ -84,13 +84,15 @@ def _make_tool_strict(tool: Any) -> Any:
 def create_sql_agent(
     indicators: Sequence[Mapping[str, Any]],
     *,
+    user_question: str | None = None,
     extra_instructions: str | None = None,
 ) -> Any:
     """
     Build a LangChain SQL agent primed with indicator metadata.
 
     Args:
-        indicators: Sequence of Qdrant-style documents containing metadata + sheet_signature.
+        indicators: Sequence of Qdrant-style documents containing metadata.
+        user_question: Raw question typed in the Streamlit UI; injected into the system prompt.
         extra_instructions: Optional string appended to the system prompt.
 
     Returns:
@@ -107,7 +109,7 @@ def create_sql_agent(
         len(indicators),
         extra={"module_name": ModuleName.ADAPTER},
     )
-    system_prompt = build_system_prompt(indicator_context)
+    system_prompt = build_system_prompt(indicator_context, user_question=user_question)
     if extra_instructions:
         system_prompt = f"{system_prompt}\n\nAdditional guidance:\n{extra_instructions}"
     agent = create_agent(
@@ -228,7 +230,11 @@ def run_sql_agent(
         [i.get("metadata", {}).get("normalized_indicator_name") for i in indicators],
         extra={"module_name": ModuleName.ADAPTER},
     )
-    agent = create_sql_agent(indicators, extra_instructions=extra_instructions)
+    agent = create_sql_agent(
+        indicators,
+        user_question=query,
+        extra_instructions=extra_instructions,
+    )
     result = agent.invoke({"input": query})
     structured = parse_agent_response(result)
     payload = structured.model_dump()

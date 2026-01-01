@@ -144,13 +144,25 @@ FEW_SHOT_EXAMPLES = dedent(
 ).strip()
 
 
-def build_system_prompt(indicator_context: str, include_examples: bool = False) -> str:
-    """Assemble the final system prompt with optional few-shot examples."""
+def build_system_prompt(
+    indicator_context: str,
+    *,
+    user_question: str | None = None,
+    include_examples: bool = False,
+) -> str:
+    """Assemble the final system prompt with optional few-shot examples and the UI question."""
 
     base = BASE_SYSTEM_PROMPT.format(
         domain_context=DOMAIN_CONTEXT,
         indicator_context=indicator_context or "(no indicator context provided)",
     )
+    prompt_sections = [base]
+
+    question_text = (user_question or "").strip()
+    if question_text:
+        prompt_sections.append(f"User Asked Question:\n{question_text}")
+
     if include_examples:
-        return f"{base}\n\n{FEW_SHOT_EXAMPLES}"
-    return base
+        prompt_sections.append(FEW_SHOT_EXAMPLES)
+
+    return "\n\n".join(prompt_sections)

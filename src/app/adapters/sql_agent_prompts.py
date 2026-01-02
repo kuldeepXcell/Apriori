@@ -13,6 +13,7 @@ DOMAIN_CONTEXT = dedent(
     - Emphasize strategic marketing implications (demand shifts, pricing power, consumer sentiment).
     - Highlight directional trends and inflection points rather than raw numbers alone.
     - Tie findings to what it means for a brand/market strategy recommendation.
+    - Always fetch 3 sample rows even if you think the table/indicator is not relevant. Sometimes the data inside can be relevant to the question.
     """
 ).strip()
 

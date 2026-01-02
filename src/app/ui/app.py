@@ -19,6 +19,7 @@ import pandas as pd
 import streamlit as st
 
 from app.adapters.sql_agent import run_sql_agent
+from app.adapters.feedback import save_indicator_feedback
 from app.config.settings import settings
 from app.core.logging import ModuleName, get_logger, setup_logging
 from app.core.langsmith import configure_langsmith
@@ -143,6 +144,29 @@ def _checkbox_key(item: dict) -> str:
     return f"indicator_select_{identifier}"
 
 
+def _feedback_key(item: dict) -> str:
+    payload = item.get("payload") or {}
+    identifier = item.get("id") or payload.get("normalized_indicator_name") or payload.get("indicator_name") or ""
+    if not identifier:
+        identifier = str(len(payload))
+    return f"indicator_feedback_{identifier}"
+
+
+def _order_results_for_display(results: list[dict], use_llm_rerank: bool) -> list[dict]:
+    if not use_llm_rerank:
+        return results
+    selected = [r for r in results if r.get("selected_by_llm")]
+    selected.sort(key=lambda r: r.get("llm_rank", float("inf")))
+    non_selected = [r for r in results if not r.get("selected_by_llm")]
+    return selected + non_selected
+
+
+def _initialize_result_state(results: list[dict]) -> None:
+    for item in results:
+        st.session_state[_checkbox_key(item)] = False
+        st.session_state[_feedback_key(item)] = "Select..."
+
+
 def collect_selected_indicators(results: list[dict]) -> list[dict]:
     selections: list[dict] = []
     for item in results:
@@ -159,17 +183,53 @@ def collect_selected_indicators(results: list[dict]) -> list[dict]:
     return selections
 
 
+def collect_feedback_labels(results: list[dict]) -> tuple[list[dict], list[str]]:
+    feedback: list[dict] = []
+    missing: list[str] = []
+    for item in results:
+        key = _feedback_key(item)
+        label = st.session_state.get(key, "Select...")
+        payload = item.get("payload") or {}
+        name = payload.get("indicator_name") or "Unknown indicator"
+        if label == "Select...":
+            missing.append(name)
+            continue
+        feedback.append(
+            {
+                "id": item.get("id"),
+                "normalized_indicator_name": payload.get("normalized_indicator_name"),
+                "indicator_name": name,
+                "label": label,
+            }
+        )
+    return feedback, missing
+
+
+def build_retrieved_payload(results: list[dict]) -> list[dict]:
+    payloads: list[dict] = []
+    for item in results:
+        payload = item.get("payload") or {}
+        payloads.append(
+            {
+                "id": item.get("id"),
+                "indicator_name": payload.get("indicator_name"),
+                "normalized_indicator_name": payload.get("normalized_indicator_name"),
+                "score": item.get("score"),
+                "selected_by_llm": item.get("selected_by_llm", False),
+                "llm_rank": item.get("llm_rank"),
+            }
+        )
+    return payloads
+
+
 def render_results(results: list[dict], use_llm_rerank: bool) -> None:
     if not results:
         st.info("No indicators found.")
         return
     st.markdown("### Top indicators")
-    selected = [r for r in results if r.get("selected_by_llm")]
-    selected.sort(key=lambda r: r.get("llm_rank", float("inf")))
-    non_selected = [r for r in results if not r.get("selected_by_llm")]
-    ordered = selected + non_selected
+    ordered = _order_results_for_display(results, use_llm_rerank)
 
-    any_llm_selected = bool(selected)
+    any_llm_selected = any(r.get("selected_by_llm") for r in results)
     if use_llm_rerank:
         if not any_llm_selected:
             st.caption("LLM reranker returned no selections; showing weighted results.")
@@ -202,10 +262,18 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
                     rank_label = f"rank {llm_rank}" if llm_rank else "selected"
                     title += f" | LLM {rank_label}"
 
-                # Checkbox stays visible; expander holds details.
-                checkbox_col, expander_col = st.columns([0.15, 0.85])  # Small column for checkbox, larger for expander
+                # Checkbox + feedback stay visible; expander holds details.
+                checkbox_col, feedback_col, expander_col = st.columns([0.15, 0.35, 0.5])
                 with checkbox_col:
                     st.checkbox("Select", key=_checkbox_key(item))
+                with feedback_col:
+                    st.radio(
+                        "Relevance",
+                        ["Select...", "Directly related", "Indirectly related", "Not related"],
+                        key=_feedback_key(item),
+                        label_visibility="collapsed",
+                        horizontal=True,
+                    )
                 with expander_col:
                     with st.expander(title, expanded=False):
                         if question_text:
@@ -252,10 +320,18 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
                     rank_label = f"rank {llm_rank}" if llm_rank else "selected"
                     title += f" | LLM {rank_label}"
 
-                # Checkbox stays visible; expander holds details.
-                checkbox_col, expander_col = st.columns([0.15, 0.85])  # Small column for checkbox, larger for expander
+                # Checkbox + feedback stay visible; expander holds details.
+                checkbox_col, feedback_col, expander_col = st.columns([0.15, 0.35, 0.5])
                 with checkbox_col:
                     st.checkbox("Select", key=_checkbox_key(item))
+                with feedback_col:
+                    st.radio(
+                        "Relevance",
+                        ["Select...", "Directly related", "Indirectly related", "Not related"],
+                        key=_feedback_key(item),
+                        label_visibility="collapsed",
+                        horizontal=True,
+                    )
                 with expander_col:
                     with st.expander(title, expanded=False):
                         if question_text:
@@ -439,6 +515,7 @@ if st.button("Identify Indicators", type="primary", width="stretch"):
                     elapsed = time.perf_counter() - start_time
                     st.session_state.results = res["results"]
                     st.session_state.use_llm_rerank = use_llm_rerank
+                    _initialize_result_state(st.session_state.results)
                     st.session_state.pop("chart_payload", None)
                     st.session_state.pop("chart_dataframe", None)
                     status.update(label=f"Found indicators in {format_duration(elapsed, 2)}", state="complete")
@@ -452,9 +529,9 @@ if st.session_state.results:
 
     # Submit button below the indicators
     st.markdown("---")
-    col1, col2, col3 = st.columns([1, 2, 1])  # Center the button
-    with col2:
-        if st.button("Submit Selection", type="primary", width="stretch", disabled=st.session_state.sql_agent_running):
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Run Analysis", type="primary", width="stretch", disabled=st.session_state.sql_agent_running):
             selected_indicators = collect_selected_indicators(st.session_state.results)
             if not question:
                 st.warning("Please provide a question so the SQL agent knows what to answer.")
@@ -495,6 +572,30 @@ if st.session_state.results:
                         st.session_state.chart_dataframe = df
                         status.update(label=f"SQL query complete in {format_duration(elapsed, 2)}", state="complete")
                     st.session_state.sql_agent_running = False
+    with col2:
+        if st.button("Submit Feedback", width="stretch"):
+            ordered_results = _order_results_for_display(
+                st.session_state.results, st.session_state.get("use_llm_rerank", False)
+            )
+            feedback, missing = collect_feedback_labels(ordered_results)
+            if missing:
+                st.warning("Please choose a relevance label for every indicator before submitting feedback.")
+            elif not question:
+                st.warning("Please provide a question so the feedback can be tied to it.")
+            else:
+                payload = {
+                    "query_text": question,
+                    "reranker_used": st.session_state.get("use_llm_rerank", False),
+                    "retrieved_indicators": build_retrieved_payload(ordered_results),
+                    "user_feedback": feedback,
+                }
+                try:
+                    feedback_id = save_indicator_feedback(payload)
+                except Exception as exc:  # pragma: no cover - UI resilience
+                    logger.exception("Feedback capture failed", extra={"module_name": ModuleName.UI})
+                    st.error(f"Feedback capture failed: {exc}")
+                else:
+                    st.success(f"Feedback saved (id: {feedback_id}).")
 
 if st.session_state.get("chart_payload") and st.session_state.get("chart_dataframe") is not None:
     st.markdown("---")

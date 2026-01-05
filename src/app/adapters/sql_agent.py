@@ -235,7 +235,13 @@ def run_sql_agent(
         user_question=query,
         extra_instructions=extra_instructions,
     )
-    result = agent.invoke({"input": query})
+    result = agent.invoke(
+        {"input": query},
+        config={
+            "tags": ["feedback-agent"],
+            "metadata": {"component": "feedback-agent"},
+        },
+    )
     structured = parse_agent_response(result)
     payload = structured.model_dump()
     logger.debug(

@@ -112,6 +112,10 @@ def rerank(
             temperature=chosen_temp,
             response_format=RerankResponse,
             include_raw=True,
+            config={
+                "tags": ["feedback-rerank"],
+                "metadata": {"component": "feedback-rerank"},
+            },
         )
         parsed = (
             llm_result.get("parsed")

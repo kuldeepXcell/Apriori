@@ -2,6 +2,8 @@ from pathlib import Path
 import sys
 import time
 import threading
+import io
+from typing import Any, Optional
 
 # Project root (two levels above src/)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -17,9 +19,12 @@ sys.path.insert(0, src_str)
 
 import pandas as pd
 import streamlit as st
+from PIL import Image
+import vl_convert as vlc
 
 from app.adapters.sql_agent import run_sql_agent
-from app.adapters.feedback import save_indicator_feedback
+from app.adapters.feedback import save_indicator_feedback, update_chart_feedback
+from app.adapters.supabase_storage import upload_chart_image
 from app.config.settings import settings
 from app.core.logging import ModuleName, get_logger, setup_logging
 from app.core.langsmith import configure_langsmith
@@ -38,6 +43,10 @@ from app.ui.components.chart_constants import (
     TITLE_ORIENTS,
 )
 
+
+EXPORT_FONT = "Arial"
+
+
 def format_duration(seconds: float, precision: int = 1) -> str:
     """Format duration in seconds to m s if > 60s."""
     if seconds < 60:
@@ -45,6 +54,49 @@ def format_duration(seconds: float, precision: int = 1) -> str:
     minutes = int(seconds // 60)
     rem_seconds = seconds % 60
     return f"{minutes}m {rem_seconds:.{precision}f}s"
+
+
+def _prepare_chart_for_export(chart):
+    """Force fonts to the bundled family so backend exports stay consistent."""
+    font = EXPORT_FONT
+    return (
+        chart.configure_axis(labelFont=font, titleFont=font)
+        .configure_legend(labelFont=font, titleFont=font)
+        .configure_title(font=font, subtitleFont=font)
+        .configure_text(font=font)
+    )
+
+
+def build_chart_export_spec(chart) -> Optional[dict[str, Any]]:
+    """Return a Vega-Lite spec ready for export so heavy conversions can be deferred."""
+    try:
+        export_chart = _prepare_chart_for_export(chart)
+        return export_chart.to_dict(format="vega-lite")
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("Chart spec build failed", extra={"module_name": ModuleName.UI})
+        return None
+
+
+def export_chart_png(spec: dict[str, Any]) -> bytes | None:
+    """Render a Vega-Lite spec to PNG bytes using vl-convert (heavy; call sparingly)."""
+    try:
+        return vlc.vegalite_to_png(spec, scale=2)
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("Chart export failed", extra={"module_name": ModuleName.UI})
+        return None
+
+
+def compress_chart_image(png_bytes: bytes, *, max_width: int = 1400, quality: int = 85) -> tuple[bytes, str, str]:
+    """Compress a PNG screenshot to a JPEG with optional resizing."""
+    image = Image.open(io.BytesIO(png_bytes))
+    image = image.convert("RGB")
+    if image.width > max_width:
+        ratio = max_width / float(image.width)
+        new_height = int(image.height * ratio)
+        image = image.resize((max_width, new_height))
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", optimize=True, quality=quality)
+    return buffer.getvalue(), "image/jpeg", "jpg"
 
 # Page configuration
 st.set_page_config(
@@ -209,6 +261,12 @@ if "results" not in st.session_state:
     st.session_state.results = []
 if "sql_agent_running" not in st.session_state:
     st.session_state.sql_agent_running = False
+if "feedback_id" not in st.session_state:
+    st.session_state.feedback_id = None
+if "chart_spec" not in st.session_state:
+    st.session_state.chart_spec = None
+if "chart_feedback_notes" not in st.session_state:
+    st.session_state.chart_feedback_notes = ""
 
 # Sidebar weights (sum enforced to 1 inside retrieval)
 st.sidebar.subheader("Hybrid weights")
@@ -284,48 +342,27 @@ def collect_selected_indicators(results: list[dict]) -> list[dict]:
     return selections
 
 
-def collect_feedback_labels(results: list[dict]) -> tuple[list[dict], list[str]]:
-    feedback: list[dict] = []
-    missing: list[str] = []
+def collect_indicator_feedback(results: list[dict]) -> list[dict]:
     label_map = {
         "\u2705": "Directly related",
-        "\u1f536": "Indirectly related",
+        "\u26A0": "Indirectly related",
         "\u274C": "Not related",
     }
-    for item in results:
-        key = _feedback_key(item)
-        label = st.session_state.get(key, "Select...")
-        payload = item.get("payload") or {}
-        name = payload.get("indicator_name") or "Unknown indicator"
-        if label == "Select...":
-            missing.append(name)
-            continue
-        feedback.append(
-            {
-                "id": item.get("id"),
-                "normalized_indicator_name": payload.get("normalized_indicator_name"),
-                "indicator_name": name,
-                "label": label_map.get(label, label),
-            }
-        )
-    return feedback, missing
-
-
-def build_retrieved_payload(results: list[dict]) -> list[dict]:
-    payloads: list[dict] = []
+    entries: list[dict] = []
     for item in results:
         payload = item.get("payload") or {}
-        payloads.append(
-            {
-                "id": item.get("id"),
-                "indicator_name": payload.get("indicator_name"),
-                "normalized_indicator_name": payload.get("normalized_indicator_name"),
-                "score": item.get("score"),
-                "selected_by_llm": item.get("selected_by_llm", False),
-                "llm_rank": item.get("llm_rank"),
-            }
-        )
-    return payloads
+        label_choice = st.session_state.get(_feedback_key(item), "Select...")
+        indicator_entry = {
+            "id": item.get("id"),
+            "indicator_name": payload.get("indicator_name"),
+            "normalized_indicator_name": payload.get("normalized_indicator_name"),
+            "score": item.get("score"),
+            "selected_by_llm": item.get("selected_by_llm", False),
+            "llm_rank": item.get("llm_rank"),
+            "label": label_map.get(label_choice) if label_choice != "Select..." else None,
+        }
+        entries.append(indicator_entry)
+    return entries
 
 
 def _render_indicator_block(item: dict, idx: int, any_llm_selected: bool) -> None:
@@ -422,6 +459,7 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
         st.warning("The SQL agent returned no rows to visualize.")
         return
 
+    st.session_state.chart_spec = None
     schema = chart_payload.get("chart_schema") or {}
     insights = chart_payload.get("insights")
     if insights:
@@ -507,6 +545,9 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
                 show_data_labels=show_data_labels,
             )
             st.altair_chart(line_chart, width="stretch")
+            spec = build_chart_export_spec(line_chart)
+            if spec:
+                st.session_state.chart_spec = spec
         with tabs[1]:
             bar_chart = chart_utils.build_chart(
                 df,
@@ -543,7 +584,7 @@ if identify_clicked:
         else:
             with st.status("Searching indicators...") as status:
                 start_time = time.perf_counter()
-                res = {"results": None, "error": None, "done": False}
+                res: dict[str, Any] = {"results": None, "error": None, "done": False}
 
                 def search_task():
                     try:
@@ -572,11 +613,15 @@ if identify_clicked:
                     st.error(f"Retrieval failed: {res['error']}")
                 else:
                     elapsed = time.perf_counter() - start_time
-                    st.session_state.results = res["results"]
+                    search_payload = res["results"] or {}
+                    st.session_state.results = search_payload.get("results", [])
                     st.session_state.use_llm_rerank = use_llm_rerank
                     _initialize_result_state(st.session_state.results)
                     st.session_state.pop("chart_payload", None)
                     st.session_state.pop("chart_dataframe", None)
+                    st.session_state.chart_spec = None
+                    st.session_state.chart_feedback_notes = ""
+                    st.session_state.feedback_id = None
                     status.update(label=f"Found indicators in {format_duration(elapsed, 2)}", state="complete")
     else:
         st.warning("Please ask a question first!")
@@ -590,7 +635,12 @@ if st.session_state.results:
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Run Analysis", type="primary", width="stretch", disabled=st.session_state.sql_agent_running):
+        if st.button(
+            "Generate chart & insights",
+            type="primary",
+            width="stretch",
+            disabled=st.session_state.sql_agent_running,
+        ):
             selected_indicators = collect_selected_indicators(st.session_state.results)
             if not question:
                 st.warning("Please provide a question so the SQL agent knows what to answer.")
@@ -600,7 +650,7 @@ if st.session_state.results:
                 st.session_state.sql_agent_running = True
                 with st.status("Querying SQL agent...") as status:
                     start_time = time.perf_counter()
-                    res = {"payload": None, "error": None, "done": False}
+                    res: dict[str, Any] = {"payload": None, "error": None, "done": False}
 
                     def agent_task():
                         try:
@@ -636,27 +686,66 @@ if st.session_state.results:
             ordered_results = _order_results_for_display(
                 st.session_state.results, st.session_state.get("use_llm_rerank", False)
             )
-            feedback, missing = collect_feedback_labels(ordered_results)
-            if missing:
-                st.warning("Please choose a relevance label for every indicator before submitting feedback.")
-            elif not question:
+            if not question:
                 st.warning("Please provide a question so the feedback can be tied to it.")
             else:
+                indicators_payload = collect_indicator_feedback(ordered_results)
                 payload = {
                     "query_text": question,
                     "reranker_used": st.session_state.get("use_llm_rerank", False),
-                    "retrieved_indicators": build_retrieved_payload(ordered_results),
-                    "user_feedback": feedback,
+                    "indicators": indicators_payload,
                 }
-                try:
-                    feedback_id = save_indicator_feedback(payload)
-                except Exception as exc:  # pragma: no cover - UI resilience
-                    logger.exception("Feedback capture failed", extra={"module_name": ModuleName.UI})
-                    st.error(f"Feedback capture failed: {exc}")
-                else:
-                    st.success(f"Feedback saved (id: {feedback_id}).")
+                with st.spinner("Saving feedback..."):
+                    try:
+                        feedback_id = save_indicator_feedback(payload)
+                    except Exception as exc:  # pragma: no cover - UI resilience
+                        logger.exception("Feedback capture failed", extra={"module_name": ModuleName.UI})
+                        st.error(f"Feedback capture failed: {exc}")
+                    else:
+                        st.session_state.feedback_id = feedback_id
+                        st.success("Feedback saved.")
 
 if st.session_state.get("chart_payload") and st.session_state.get("chart_dataframe") is not None:
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("## Visualization")
     render_chart_designer(st.session_state.chart_payload, st.session_state.chart_dataframe)
+    st.markdown("### Feedback on chart & insights")
+    st.caption("Share optional notes about the generated visualization. Submit indicator feedback first to unlock this step.")
+    st.text_area(
+        "Feedback notes",
+        key="chart_feedback_notes",
+        placeholder="What worked well? Anything missing or incorrect in the chart/insights?",
+    )
+    can_submit_chart = bool(st.session_state.feedback_id)
+    if not can_submit_chart:
+        st.info("Submit indicator feedback to generate a feedback id before sharing chart comments.")
+    if st.button("Submit chart feedback", disabled=not can_submit_chart):
+        if not st.session_state.feedback_id:
+            st.warning("Submit indicator feedback first.")
+        else:
+            chart_spec = st.session_state.get("chart_spec")
+            if not chart_spec:
+                st.warning("Chart snapshot unavailable. Re-run the chart generation first.")
+            else:
+                with st.spinner("Saving chart feedback..."):
+                    try:
+                        image_bytes = export_chart_png(chart_spec)
+                        if not image_bytes:
+                            raise RuntimeError("Unable to render chart image")
+                        compressed_bytes, content_type, extension = compress_chart_image(image_bytes)
+                        image_url = upload_chart_image(
+                            st.session_state.feedback_id,
+                            compressed_bytes,
+                            content_type=content_type,
+                            extension=extension,
+                        )
+                        update_chart_feedback(
+                            st.session_state.feedback_id,
+                            chart_notes=st.session_state.chart_feedback_notes.strip() or None,
+                            chart_image_url=image_url,
+                        )
+                    except Exception as exc:
+                        logger.exception("Chart feedback save failed", extra={"module_name": ModuleName.UI})
+                        st.error(f"Chart feedback failed: {exc}")
+                    else:
+                        st.success("Chart feedback saved.")

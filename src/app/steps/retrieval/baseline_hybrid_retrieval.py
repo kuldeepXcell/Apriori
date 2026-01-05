@@ -72,7 +72,7 @@ def search(
     weights: Dict[str, float] | None = None,
     top_k: int = 15,
     use_llm_rerank: bool = True,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """
     Search across 3 dense + 1 sparse vectors with user-provided weights.
 
@@ -294,7 +294,7 @@ def search(
         extra={"module_name": ModuleName.RETRIEVAL},
     )
 
-    return top_results
+    return {"results": top_results}
 
 
 def _apply_llm_rerank(question: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:

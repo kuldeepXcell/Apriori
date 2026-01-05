@@ -17,11 +17,10 @@ COLOR_PALETTES: dict[str, list[str]] = {
     "Mono": ["#4f5d75", "#bfc0c0", "#ef8354"],
 }
 
-DEFAULT_FONT = "Helvetica"
+DEFAULT_FONT = "Inter"
 DEFAULT_FONT_SIZE = 12
 AVAILABLE_FONTS = [
     DEFAULT_FONT,
-    "Inter",
     "Roboto",
     "Source Sans Pro",
     "Work Sans",

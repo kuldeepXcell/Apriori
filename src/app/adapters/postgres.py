@@ -64,7 +64,7 @@ def build_psycopg_dsn() -> str:
         return settings.database_url
     return (
         f"host={settings.db_host} port={settings.db_port} dbname={settings.db_name} "
-        f"user={settings.db_user} password={settings.db_password}"
+        f"user={settings.db_user} password={settings.db_password} sslmode=require"
     )
 
 

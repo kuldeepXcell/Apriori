@@ -30,6 +30,7 @@ from app.core.logging import ModuleName, get_logger, setup_logging
 from app.core.langsmith import configure_langsmith
 from app.steps.retrieval import baseline_hybrid_retrieval as retrieval
 from app.ui.components import charts as chart_utils
+from app.ui.components.vega_snapshot import capture_chart_png as capture_chart_png_from_browser
 from app.ui.components.chart_constants import (
     AVAILABLE_FONTS,
     COLOR_PALETTES,
@@ -727,11 +728,12 @@ if st.session_state.get("chart_payload") and st.session_state.get("chart_datafra
             if not chart_spec:
                 st.warning("Chart snapshot unavailable. Re-run the chart generation first.")
             else:
-                with st.spinner("Saving chart feedback..."):
+                with st.spinner("Capturing chart from browser..."):
                     try:
-                        image_bytes = export_chart_png(chart_spec)
+                        # Capture PNG directly from browser-rendered Vega view
+                        image_bytes = capture_chart_png_from_browser(chart_spec, height=600)
                         if not image_bytes:
-                            raise RuntimeError("Unable to render chart image")
+                            raise RuntimeError("Unable to capture chart image from browser")
                         compressed_bytes, content_type, extension = compress_chart_image(image_bytes)
                         image_url = upload_chart_image(
                             st.session_state.feedback_id,

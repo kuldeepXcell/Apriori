@@ -53,6 +53,13 @@ class Settings(BaseSettings):
         default="", validation_alias=AliasChoices("db_password", "postgres_password", "password")
     )
     sql_agent_model: str = "gpt-5.1"
+    supabase_url: str | None = None
+    supabase_secret_key: str | None = None
+    supabase_publishable_key: str | None = None
+    supabase_feedback_bucket: str = Field(
+        default="feedback-charts",
+        validation_alias=AliasChoices("supabase_feedback_bucket", "feedback_bucket_name"),
+    )
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

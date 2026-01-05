@@ -44,6 +44,7 @@ def chat(
     response_format: type[StructuredT] | Mapping[str, Any] | None = None,
     include_raw: bool = False,
     structured_method: str | None = None,
+    config: Mapping[str, Any] | None = None,
     **kwargs: Any,
 ) -> Any:
     """
@@ -62,5 +63,5 @@ def chat(
         if structured_method is not None:
             with_kwargs["method"] = structured_method
         structured_model = chat_model.with_structured_output(response_format, **with_kwargs)
-        return structured_model.invoke(lc_messages, **kwargs)
-    return chat_model.invoke(lc_messages, **kwargs)
+        return structured_model.invoke(lc_messages, config=config, **kwargs)
+    return chat_model.invoke(lc_messages, config=config, **kwargs)

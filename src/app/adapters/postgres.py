@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import Iterator
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote_plus
 
 import psycopg
 
@@ -47,9 +47,12 @@ def build_connection_uri() -> str:
     """
     if settings.database_url:
         return _normalize_sqlalchemy_uri(settings.database_url)
+    user = quote_plus(settings.db_user)
+    password = quote_plus(settings.db_password)
+    host = settings.db_host
     return (
-        f"postgresql+psycopg://{settings.db_user}:{settings.db_password}"
-        f"@{settings.db_host}:{settings.db_port}/{settings.db_name}?sslmode=require"
+        f"postgresql+psycopg://{user}:{password}"
+        f"@{host}:{settings.db_port}/{settings.db_name}?sslmode=require"
     )
 
 

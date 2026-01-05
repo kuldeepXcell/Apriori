@@ -2,7 +2,6 @@ from pathlib import Path
 import sys
 import time
 import threading
-import io
 from typing import Any, Optional
 
 # Project root (two levels above src/)
@@ -19,18 +18,15 @@ sys.path.insert(0, src_str)
 
 import pandas as pd
 import streamlit as st
-from PIL import Image
 import vl_convert as vlc
 
 from app.adapters.sql_agent import run_sql_agent
 from app.adapters.feedback import save_indicator_feedback, update_chart_feedback
-from app.adapters.supabase_storage import upload_chart_image
 from app.config.settings import settings
 from app.core.logging import ModuleName, get_logger, setup_logging
 from app.core.langsmith import configure_langsmith
 from app.steps.retrieval import baseline_hybrid_retrieval as retrieval
 from app.ui.components import charts as chart_utils
-from app.ui.components.vega_snapshot import capture_chart_png as capture_chart_png_from_browser
 from app.ui.components.chart_constants import (
     AVAILABLE_FONTS,
     COLOR_PALETTES,
@@ -45,9 +41,6 @@ from app.ui.components.chart_constants import (
 )
 
 
-EXPORT_FONT = "Arial"
-
-
 def format_duration(seconds: float, precision: int = 1) -> str:
     """Format duration in seconds to m s if > 60s."""
     if seconds < 60:
@@ -57,47 +50,13 @@ def format_duration(seconds: float, precision: int = 1) -> str:
     return f"{minutes}m {rem_seconds:.{precision}f}s"
 
 
-def _prepare_chart_for_export(chart):
-    """Force fonts to the bundled family so backend exports stay consistent."""
-    font = EXPORT_FONT
-    return (
-        chart.configure_axis(labelFont=font, titleFont=font)
-        .configure_legend(labelFont=font, titleFont=font)
-        .configure_title(font=font, subtitleFont=font)
-        .configure_text(font=font)
-    )
-
-
 def build_chart_export_spec(chart) -> Optional[dict[str, Any]]:
-    """Return a Vega-Lite spec ready for export so heavy conversions can be deferred."""
+    """Return a Vega-Lite spec for saving chart snapshots."""
     try:
-        export_chart = _prepare_chart_for_export(chart)
-        return export_chart.to_dict(format="vega-lite")
+        return chart.to_dict(format="vega-lite")
     except Exception:  # pragma: no cover - defensive
         logger.exception("Chart spec build failed", extra={"module_name": ModuleName.UI})
         return None
-
-
-def export_chart_png(spec: dict[str, Any]) -> bytes | None:
-    """Render a Vega-Lite spec to PNG bytes using vl-convert (heavy; call sparingly)."""
-    try:
-        return vlc.vegalite_to_png(spec, scale=2)
-    except Exception:  # pragma: no cover - defensive
-        logger.exception("Chart export failed", extra={"module_name": ModuleName.UI})
-        return None
-
-
-def compress_chart_image(png_bytes: bytes, *, max_width: int = 1400, quality: int = 85) -> tuple[bytes, str, str]:
-    """Compress a PNG screenshot to a JPEG with optional resizing."""
-    image = Image.open(io.BytesIO(png_bytes))
-    image = image.convert("RGB")
-    if image.width > max_width:
-        ratio = max_width / float(image.width)
-        new_height = int(image.height * ratio)
-        image = image.resize((max_width, new_height))
-    buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", optimize=True, quality=quality)
-    return buffer.getvalue(), "image/jpeg", "jpg"
 
 # Page configuration
 st.set_page_config(
@@ -268,8 +227,6 @@ if "chart_spec" not in st.session_state:
     st.session_state.chart_spec = None
 if "chart_feedback_notes" not in st.session_state:
     st.session_state.chart_feedback_notes = ""
-if "chart_capture_trigger" not in st.session_state:
-    st.session_state.chart_capture_trigger = 0
 
 # Sidebar weights (sum enforced to 1 inside retrieval)
 st.sidebar.subheader("Hybrid weights")
@@ -730,37 +687,19 @@ if st.session_state.get("chart_payload") and st.session_state.get("chart_datafra
             if not chart_spec:
                 st.warning("Chart snapshot unavailable. Re-run the chart generation first.")
             else:
-                # Trigger capture
-                st.session_state.chart_capture_trigger += 1
-    
-    # Handle capture component (renders when trigger > 0)
-    if st.session_state.chart_capture_trigger > 0 and st.session_state.get("chart_spec"):
-        with st.spinner("Capturing chart from browser..."):
-            image_bytes = capture_chart_png_from_browser(
-                st.session_state.chart_spec,
-                trigger=st.session_state.chart_capture_trigger,
-                height=600
-            )
-            
-        # If we got bytes back, proceed with upload
-        if image_bytes:
-            try:
-                compressed_bytes, content_type, extension = compress_chart_image(image_bytes)
-                image_url = upload_chart_image(
-                    st.session_state.feedback_id,
-                    compressed_bytes,
-                    content_type=content_type,
-                    extension=extension,
-                )
-                update_chart_feedback(
-                    st.session_state.feedback_id,
-                    chart_notes=st.session_state.chart_feedback_notes.strip() or None,
-                    chart_image_url=image_url,
-                )
-                st.success("Chart feedback saved.")
-                # Reset trigger
-                st.session_state.chart_capture_trigger = 0
-            except Exception as exc:
-                logger.exception("Chart feedback save failed", extra={"module_name": ModuleName.UI})
-                st.error(f"Chart feedback failed: {exc}")
-                st.session_state.chart_capture_trigger = 0
+                with st.spinner("Saving chart feedback..."):
+                    try:
+                        svg_payload = vlc.vegalite_to_svg(chart_spec)
+                        if isinstance(svg_payload, bytes):
+                            chart_svg = svg_payload.decode("utf-8")
+                        else:
+                            chart_svg = svg_payload
+                        update_chart_feedback(
+                            st.session_state.feedback_id,
+                            chart_notes=st.session_state.chart_feedback_notes.strip() or None,
+                            chart_svg=chart_svg,
+                        )
+                        st.success("Chart feedback saved.")
+                    except Exception as exc:
+                        logger.exception("Chart feedback save failed", extra={"module_name": ModuleName.UI})
+                        st.error(f"Chart feedback failed: {exc}")

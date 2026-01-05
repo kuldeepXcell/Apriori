@@ -72,25 +72,25 @@ def update_chart_feedback(
     feedback_id: str,
     *,
     chart_notes: str | None,
-    chart_image_url: str | None,
+    chart_svg: str | None,
 ) -> None:
     """Attach chart feedback data to an existing indicator_feedback row."""
     sql = """
         UPDATE indicator_feedback
         SET chart_notes = %s,
-            chart_image_url = %s,
+            chart_svg = %s,
             chart_saved_at = NOW()
         WHERE feedback_id = %s
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (chart_notes, chart_image_url, feedback_id))
+            cur.execute(sql, (chart_notes, chart_svg, feedback_id))
 
     logger.info(
-        "Updated chart feedback for %s (notes=%s, image_url=%s)",
+        "Updated chart feedback for %s (notes=%s, svg=%s)",
         feedback_id,
         bool(chart_notes),
-        bool(chart_image_url),
+        bool(chart_svg),
         extra={"module_name": ModuleName.ADAPTER},
     )
 
@@ -99,7 +99,7 @@ def get_feedback(feedback_id: str) -> dict[str, Any] | None:
     """Fetch a single feedback row by id."""
     sql = """
         SELECT feedback_id, created_at, query_text, reranker_used, indicators,
-               chart_notes, chart_image_url, chart_saved_at
+               chart_notes, chart_svg, chart_saved_at
         FROM indicator_feedback
         WHERE feedback_id = %s
     """
@@ -115,7 +115,7 @@ def get_feedback(feedback_id: str) -> dict[str, Any] | None:
         reranker_used,
         indicators,
         chart_notes,
-        chart_image_url,
+        chart_svg,
         chart_saved_at,
     ) = row
     return {
@@ -125,7 +125,7 @@ def get_feedback(feedback_id: str) -> dict[str, Any] | None:
         "reranker_used": reranker_used,
         "indicators": indicators,
         "chart_notes": chart_notes,
-        "chart_image_url": chart_image_url,
+        "chart_svg": chart_svg,
         "chart_saved_at": chart_saved_at,
     }
 
@@ -134,7 +134,7 @@ def list_feedback(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
     """List recent feedback rows."""
     sql = """
         SELECT feedback_id, created_at, query_text, reranker_used, indicators,
-               chart_notes, chart_image_url, chart_saved_at
+               chart_notes, chart_svg, chart_saved_at
         FROM indicator_feedback
         ORDER BY created_at DESC
         LIMIT %s OFFSET %s
@@ -150,7 +150,7 @@ def list_feedback(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         reranker_used,
         indicators,
         chart_notes,
-        chart_image_url,
+        chart_svg,
         chart_saved_at,
     ) in rows:
         results.append(
@@ -161,7 +161,7 @@ def list_feedback(limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
                 "reranker_used": reranker_used,
                 "indicators": indicators,
                 "chart_notes": chart_notes,
-                "chart_image_url": chart_image_url,
+                "chart_svg": chart_svg,
                 "chart_saved_at": chart_saved_at,
             }
         )

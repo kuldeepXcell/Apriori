@@ -1,0 +1,6 @@
+fonts-liberation
+fonts-dejavu-core
+fonts-freefont-ttf
+fontconfig
+libfontconfig1
+

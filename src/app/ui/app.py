@@ -67,9 +67,17 @@ logger = get_logger(__name__)
 st.markdown(
     """
     <style>
+    html, body, [data-testid="stAppViewContainer"] {
+        background-color: #f5f7fb;
+        color: #1f2a37;
+    }
+    .stAppHeader {
+        background-color: #ffffff !important;
+        border-bottom: 1px solid #e5e7eb;
+    }
     .main-header {
         text-align: left;
-        padding: 20px 0;
+        padding: 1.5rem 0 0.5rem;
     }
     .company-logo {
         font-size: 48px;
@@ -77,51 +85,102 @@ st.markdown(
     }
     .app-title {
         font-size: 20px;
-        color: #666;
-        margin-bottom: 30px;
+        color: #6b7280;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.75rem;
     }
-    .output-box {
-        background-color: #010011;
-        border-radius: 10px;
-        padding: 20px;
-        margin-top: 20px;
-        min-height: 100px;
-        border-left: 4px solid #BB271A;
+    .question-card {
+        background: #ffffff;
+        border-radius: 18px;
+        padding: 1.5rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
+        margin-bottom: 1.4rem;
+    }
+    .section-divider {
+        height: 1px;
+        width: 100%;
+        background: linear-gradient(90deg, transparent, #d3dae6, transparent);
+        margin: 1.2rem 0;
+    }
+    .button-spacer {
+        height: 1.6rem;
     }
     .stTextInput > label {
         font-size: 16px;
         font-weight: 500;
+        color: #1f2a37;
     }
     .stCheckbox label {
         white-space: nowrap;
+        color: #1f2a37;
+    }
+    div[role="radiogroup"] {
+        gap: 0.6rem;
     }
     div[role="radiogroup"] > label {
-        border: 1px solid #D0D4DA;
+        border: 1px solid #d1d5db;
         border-radius: 999px;
-        padding: 2px 8px;
+        padding: 4px 12px;
         margin-bottom: 6px;
         display: inline-flex;
         align-items: center;
         gap: 6px;
+        background-color: #ffffff;
+        color: #1f2a37;
     }
     div[role="radiogroup"] > label:nth-child(1) {
         display: none;
     }
     div[role="radiogroup"] > label:nth-child(2) {
-        border-color: #1E7F3E;
-        color: #1E7F3E;
+        border-color: #34a853;
+        color: #1f7f3e;
     }
     div[role="radiogroup"] > label:nth-child(3) {
-        border-color: #F4A623;
-        color: #B56A00;
+        border-color: #fbbc05;
+        color: #b45309;
     }
     div[role="radiogroup"] > label:nth-child(4) {
-        border-color: #D64545;
-        color: #D64545;
+        border-color: #ea4335;
+        color: #b91c1c;
     }
     .indicator-row {
-        padding: 6px 0;
-        border-bottom: 1px solid #F0F1F4;
+        padding: 1.25rem;
+        border-radius: 16px;
+        border: 1px solid #e5e7eb;
+        background: #ffffff;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+        margin-bottom: 1rem;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .indicator-row:hover {
+        border-color: #f97316;
+        box-shadow: 0 16px 30px rgba(249, 115, 22, 0.15);
+    }
+    .indicator-meta-line {
+        margin-top: 0.75rem;
+        font-size: 0.85rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #6b7280;
+    }
+    .indicator-meta-line span {
+        margin-right: 0.75rem;
+    }
+    .indicator-meta-line .meta-accent {
+        color: #f97316;
+    }
+    .indicator-meta-line .meta-llm {
+        color: #1f7f3e;
+    }
+    .sidebar-badge {
+        background: #f3f4f6;
+        padding: 0.4rem 0.75rem;
+        border-radius: 10px;
+        font-size: 0.85rem;
+        margin-top: 0.5rem;
+        border: 1px solid #e5e7eb;
+        color: #1f2a37;
     }
     </style>
     """,
@@ -136,16 +195,20 @@ else:
     st.warning(f"Logo not found at {LOGO_PATH}")
 st.markdown('<div class="app-title">Data Visualization</div></div>', unsafe_allow_html=True)
 
-st.markdown("---")
+st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+col_question, col_button = st.columns([4, 1])
+question = col_question.text_input("Ask a question", placeholder="Type your question here...")
+with col_button:
+    st.markdown('<div class="button-spacer"></div>', unsafe_allow_html=True)
+    identify_clicked = st.button("Identify Indicators", type="primary", use_container_width=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 # Initialize session state for storing responses
 if "results" not in st.session_state:
     st.session_state.results = []
 if "sql_agent_running" not in st.session_state:
     st.session_state.sql_agent_running = False
-
-# Input section
-question = st.text_input("Ask a question", placeholder="Type your question here...")
 
 # Sidebar weights (sum enforced to 1 inside retrieval)
 st.sidebar.subheader("Hybrid weights")
@@ -160,11 +223,18 @@ weights = {
     "keywords": weight_kw,
 }
 total_weight = sum(weights.values())
-st.sidebar.markdown(f"**Total weight:** {total_weight:.2f} (must be ≤ 1.0)")
+st.sidebar.markdown(
+    f'<div class="sidebar-badge"><strong>Total weight:</strong> {total_weight:.2f} (target <= 1.0)</div>',
+    unsafe_allow_html=True,
+)
 if total_weight > 1.0:
-    st.sidebar.error("Reduce weights so the total is ≤ 1.0.")
+    st.sidebar.error("Reduce weights so the total is <= 1.0.")
 
-use_llm_rerank = st.sidebar.checkbox("Use LLM reranker", value=st.session_state.get("use_llm_rerank", False))
+use_llm_rerank = st.sidebar.checkbox(
+    "Use LLM reranker",
+    value=st.session_state.get("use_llm_rerank", False),
+    help="Let the reranker rescore the blended retrieval results.",
+)
 
 
 def _checkbox_key(item: dict) -> str:
@@ -270,10 +340,7 @@ def _render_indicator_block(item: dict, idx: int, any_llm_selected: bool) -> Non
     selected_by_llm = item.get("selected_by_llm", False)
     llm_rank = item.get("llm_rank")
 
-    title = f"{idx}. {name} (score: {score:.3f})"
-    if selected_by_llm:
-        rank_label = f"rank {llm_rank}" if llm_rank else "selected"
-        title += f" | LLM {rank_label}"
+    title = f"{idx}. {name}"
 
     checkbox_col, expander_col = st.columns([0.15, 0.85])
     with checkbox_col:
@@ -298,10 +365,17 @@ def _render_indicator_block(item: dict, idx: int, any_llm_selected: bool) -> Non
             for col, (score_key, label) in zip(score_cols, score_labels):
                 score_val = source_scores.get(score_key, 0.0)
                 col.metric(f"{label} score", f"{score_val:.4f}")
-            if selected_by_llm:
-                st.caption("Selected by LLM reranker")
-            elif any_llm_selected:
-                st.caption("Not selected by LLM reranker")
+    meta_bits: list[str] = [f'<span>Score <span class="meta-accent">{score:.3f}</span></span>']
+    if selected_by_llm:
+        rank_label = f"LLM rank {llm_rank}" if llm_rank else "LLM selected"
+        meta_bits.append(f'<span class="meta-llm">{rank_label}</span>')
+    elif any_llm_selected:
+        meta_bits.append("<span>Weighted blend result</span>")
+    if sheet:
+        meta_bits.append(f"<span>Sheet {sheet}</span>")
+    if app_ctx and not question_text:
+        meta_bits.append(f"<span>{app_ctx}</span>")
+    st.markdown(f'<div class="indicator-meta-line">{"".join(meta_bits)}</div>', unsafe_allow_html=True)
 
     st.radio(
         "Relevance",
@@ -335,12 +409,10 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
         row_col1, row_col2 = st.columns(2)
         if i < len(ordered):
             with row_col1:
-                st.markdown('<div class="indicator-row">', unsafe_allow_html=True)
                 _render_indicator_block(ordered[i], i + 1, any_llm_selected)
                 st.markdown("</div>", unsafe_allow_html=True)
         if i + 1 < len(ordered):
             with row_col2:
-                st.markdown('<div class="indicator-row">', unsafe_allow_html=True)
                 _render_indicator_block(ordered[i + 1], i + 2, any_llm_selected)
                 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -464,10 +536,10 @@ def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:
         st.markdown("### Data quality notes")
         st.info(data_quality_notes)
 # Process button
-if st.button("Identify Indicators", type="primary", width="stretch"):
+if identify_clicked:
     if question:
         if total_weight > 1.0:
-            st.error("Total weight must be ≤ 1.0. Please adjust sliders.")
+            st.error("Total weight must be <= 1.0. Please adjust sliders.")
         else:
             with st.status("Searching indicators...") as status:
                 start_time = time.perf_counter()
@@ -515,7 +587,7 @@ if st.session_state.results:
     render_results(st.session_state.results, st.session_state.get("use_llm_rerank", False))
 
     # Submit button below the indicators
-    st.markdown("---")
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Run Analysis", type="primary", width="stretch", disabled=st.session_state.sql_agent_running):
@@ -585,6 +657,6 @@ if st.session_state.results:
                     st.success(f"Feedback saved (id: {feedback_id}).")
 
 if st.session_state.get("chart_payload") and st.session_state.get("chart_dataframe") is not None:
-    st.markdown("---")
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("## Visualization")
     render_chart_designer(st.session_state.chart_payload, st.session_state.chart_dataframe)

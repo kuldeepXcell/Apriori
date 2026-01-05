@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 from urllib.parse import urlparse, quote_plus
+import socket
 
 import psycopg
 
@@ -38,6 +39,24 @@ def _describe_connection_target() -> str:
     )
 
 
+def _resolve_ipv4_host(host: str) -> str | None:
+    """
+    Attempt to resolve a hostname to an IPv4 address (needed on networks that block IPv6).
+    """
+    try:
+        info = socket.getaddrinfo(host, None, family=socket.AF_INET)
+    except socket.gaierror:
+        logger.warning(
+            "IPv4 resolution failed for host %s",
+            host,
+            extra={"module_name": ModuleName.ADAPTER},
+        )
+        return None
+    if not info:
+        return None
+    return info[0][4][0]
+
+
 def build_connection_uri() -> str:
     """
     Construct a SQLAlchemy-compatible connection string for our Postgres instance.
@@ -62,10 +81,18 @@ def build_psycopg_dsn() -> str:
     """
     if settings.database_url:
         return settings.database_url
-    return (
-        f"host={settings.db_host} port={settings.db_port} dbname={settings.db_name} "
-        f"user={settings.db_user} password={settings.db_password} sslmode=require"
-    )
+    hostaddr = _resolve_ipv4_host(settings.db_host)
+    dsn_parts = [
+        f"host={settings.db_host}",
+        f"port={settings.db_port}",
+        f"dbname={settings.db_name}",
+        f"user={settings.db_user}",
+        f"password={settings.db_password}",
+        "sslmode=require",
+    ]
+    if hostaddr:
+        dsn_parts.append(f"hostaddr={hostaddr}")
+    return " ".join(dsn_parts)
 
 
 @contextmanager

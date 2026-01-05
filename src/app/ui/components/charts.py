@@ -184,7 +184,7 @@ def build_chart(
             subtitleColor="#64748b",
             fontSize=18,
             subtitleFontSize=14,
-            dy=-10,
+            dy=0,
             dx=60,  # Align title with y-axis (compensating for left padding)
         )
 
@@ -195,7 +195,7 @@ def build_chart(
             title=title_params,
             autosize=alt.AutoSizeParams(type="fit", contains="padding"),
         )
-        .configure(background="#ffffff", padding={"left": 80, "top": 60, "right": 30, "bottom": 20})
+        .configure(background="#ffffff", padding={"left": 80, "top": 90, "right": 30, "bottom": 20})
         .configure_view(fill="#ffffff", stroke="transparent")
         .configure_axis(
             labelFont=font,

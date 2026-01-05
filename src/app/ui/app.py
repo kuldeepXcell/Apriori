@@ -92,6 +92,37 @@ st.markdown(
         font-size: 16px;
         font-weight: 500;
     }
+    .stCheckbox label {
+        white-space: nowrap;
+    }
+    div[role="radiogroup"] > label {
+        border: 1px solid #D0D4DA;
+        border-radius: 999px;
+        padding: 2px 8px;
+        margin-bottom: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    div[role="radiogroup"] > label:nth-child(1) {
+        display: none;
+    }
+    div[role="radiogroup"] > label:nth-child(2) {
+        border-color: #1E7F3E;
+        color: #1E7F3E;
+    }
+    div[role="radiogroup"] > label:nth-child(3) {
+        border-color: #F4A623;
+        color: #B56A00;
+    }
+    div[role="radiogroup"] > label:nth-child(4) {
+        border-color: #D64545;
+        color: #D64545;
+    }
+    .indicator-row {
+        padding: 6px 0;
+        border-bottom: 1px solid #F0F1F4;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -186,6 +217,11 @@ def collect_selected_indicators(results: list[dict]) -> list[dict]:
 def collect_feedback_labels(results: list[dict]) -> tuple[list[dict], list[str]]:
     feedback: list[dict] = []
     missing: list[str] = []
+    label_map = {
+        "\u2705": "Directly related",
+        "\u1f536": "Indirectly related",
+        "\u274C": "Not related",
+    }
     for item in results:
         key = _feedback_key(item)
         label = st.session_state.get(key, "Select...")
@@ -199,7 +235,7 @@ def collect_feedback_labels(results: list[dict]) -> tuple[list[dict], list[str]]
                 "id": item.get("id"),
                 "normalized_indicator_name": payload.get("normalized_indicator_name"),
                 "indicator_name": name,
-                "label": label,
+                "label": label_map.get(label, label),
             }
         )
     return feedback, missing
@@ -222,6 +258,65 @@ def build_retrieved_payload(results: list[dict]) -> list[dict]:
     return payloads
 
 
+def _render_indicator_block(item: dict, idx: int, any_llm_selected: bool) -> None:
+    payload = item.get("payload", {}) or {}
+    name = payload.get("indicator_name") or "Unknown indicator"
+    question_text = payload.get("question") or ""
+    definition = payload.get("definition") or ""
+    app_ctx = payload.get("application_context") or ""
+    sheet = payload.get("sheet_name") or ""
+    score = item.get("score", 0)
+    source_scores = item.get("source_scores") or {}
+    selected_by_llm = item.get("selected_by_llm", False)
+    llm_rank = item.get("llm_rank")
+
+    title = f"{idx}. {name} (score: {score:.3f})"
+    if selected_by_llm:
+        rank_label = f"rank {llm_rank}" if llm_rank else "selected"
+        title += f" | LLM {rank_label}"
+
+    checkbox_col, expander_col = st.columns([0.15, 0.85])
+    with checkbox_col:
+        st.checkbox("Select", key=_checkbox_key(item))
+    with expander_col:
+        with st.expander(title, expanded=False):
+            if question_text:
+                st.markdown(f"- Question: {question_text}")
+            if definition:
+                st.markdown(f"- Definition: {definition}")
+            if app_ctx:
+                st.markdown(f"- Application context: {app_ctx}")
+            if sheet:
+                st.markdown(f"- Sheet: {sheet}")
+            score_cols = st.columns(4)
+            score_labels = [
+                ("definition", "Definition"),
+                ("question", "Question"),
+                ("context", "Context"),
+                ("keywords", "Keywords"),
+            ]
+            for col, (score_key, label) in zip(score_cols, score_labels):
+                score_val = source_scores.get(score_key, 0.0)
+                col.metric(f"{label} score", f"{score_val:.4f}")
+            if selected_by_llm:
+                st.caption("Selected by LLM reranker")
+            elif any_llm_selected:
+                st.caption("Not selected by LLM reranker")
+
+    st.radio(
+        "Relevance",
+        [
+            "Select...",
+            "\u2705",
+            "\u26A0",
+            "\u274C",
+        ],
+        key=_feedback_key(item),
+        label_visibility="collapsed",
+        horizontal=True,
+    )
+
+
 def render_results(results: list[dict], use_llm_rerank: bool) -> None:
     if not results:
         st.info("No indicators found.")
@@ -236,126 +331,18 @@ def render_results(results: list[dict], use_llm_rerank: bool) -> None:
     else:
         st.caption("LLM reranker disabled; showing weighted results.")
 
-    # Render indicators in rows of two columns each
     for i in range(0, len(ordered), 2):
-        # Create a row with two columns
         row_col1, row_col2 = st.columns(2)
-
-        # First indicator in this row (left column)
         if i < len(ordered):
             with row_col1:
-                item = ordered[i]
-                idx = i + 1
-                payload = item.get("payload", {}) or {}
-                name = payload.get("indicator_name") or "Unknown indicator"
-                question_text = payload.get("question") or ""
-                definition = payload.get("definition") or ""
-                app_ctx = payload.get("application_context") or ""
-                sheet = payload.get("sheet_name") or ""
-                score = item.get("score", 0)
-                source_scores = item.get("source_scores") or {}
-                selected_by_llm = item.get("selected_by_llm", False)
-                llm_rank = item.get("llm_rank")
-
-                title = f"{idx}. {name} (score: {score:.3f})"
-                if selected_by_llm:
-                    rank_label = f"rank {llm_rank}" if llm_rank else "selected"
-                    title += f" | LLM {rank_label}"
-
-                # Checkbox + feedback stay visible; expander holds details.
-                checkbox_col, feedback_col, expander_col = st.columns([0.15, 0.35, 0.5])
-                with checkbox_col:
-                    st.checkbox("Select", key=_checkbox_key(item))
-                with feedback_col:
-                    st.radio(
-                        "Relevance",
-                        ["Select...", "Directly related", "Indirectly related", "Not related"],
-                        key=_feedback_key(item),
-                        label_visibility="collapsed",
-                        horizontal=True,
-                    )
-                with expander_col:
-                    with st.expander(title, expanded=False):
-                        if question_text:
-                            st.markdown(f"- Question: {question_text}")
-                        if definition:
-                            st.markdown(f"- Definition: {definition}")
-                        if app_ctx:
-                            st.markdown(f"- Application context: {app_ctx}")
-                        if sheet:
-                            st.markdown(f"- Sheet: {sheet}")
-                        score_cols = st.columns(4)
-                        score_labels = [
-                            ("definition", "Definition"),
-                            ("question", "Question"),
-                            ("context", "Context"),
-                            ("keywords", "Keywords"),
-                        ]
-                        for col, (score_key, label) in zip(score_cols, score_labels):
-                            score_val = source_scores.get(score_key, 0.0)
-                            col.metric(f"{label} score", f"{score_val:.4f}")
-                        if selected_by_llm:
-                            st.caption("Selected by LLM reranker")
-                        elif any_llm_selected:
-                            st.caption("Not selected by LLM reranker")
-
-        # Second indicator in this row (right column)
+                st.markdown('<div class="indicator-row">', unsafe_allow_html=True)
+                _render_indicator_block(ordered[i], i + 1, any_llm_selected)
+                st.markdown("</div>", unsafe_allow_html=True)
         if i + 1 < len(ordered):
             with row_col2:
-                item = ordered[i + 1]
-                idx = i + 2
-                payload = item.get("payload", {}) or {}
-                name = payload.get("indicator_name") or "Unknown indicator"
-                question_text = payload.get("question") or ""
-                definition = payload.get("definition") or ""
-                app_ctx = payload.get("application_context") or ""
-                sheet = payload.get("sheet_name") or ""
-                score = item.get("score", 0)
-                source_scores = item.get("source_scores") or {}
-                selected_by_llm = item.get("selected_by_llm", False)
-                llm_rank = item.get("llm_rank")
-
-                title = f"{idx}. {name} (score: {score:.3f})"
-                if selected_by_llm:
-                    rank_label = f"rank {llm_rank}" if llm_rank else "selected"
-                    title += f" | LLM {rank_label}"
-
-                # Checkbox + feedback stay visible; expander holds details.
-                checkbox_col, feedback_col, expander_col = st.columns([0.15, 0.35, 0.5])
-                with checkbox_col:
-                    st.checkbox("Select", key=_checkbox_key(item))
-                with feedback_col:
-                    st.radio(
-                        "Relevance",
-                        ["Select...", "Directly related", "Indirectly related", "Not related"],
-                        key=_feedback_key(item),
-                        label_visibility="collapsed",
-                        horizontal=True,
-                    )
-                with expander_col:
-                    with st.expander(title, expanded=False):
-                        if question_text:
-                            st.markdown(f"- Question: {question_text}")
-                        if definition:
-                            st.markdown(f"- Definition: {definition}")
-                        if app_ctx:
-                            st.markdown(f"- Application context: {app_ctx}")
-                        if sheet:
-                            st.markdown(f"- Sheet: {sheet}")
-                        score_cols = st.columns(4)
-                        score_labels = [
-                            ("definition", "Definition"),
-                            ("question", "Question"),
-                            ("context", "Context"),
-                            ("keywords", "Keywords"),
-                        ]
-                        for col, (score_key, label) in zip(score_cols, score_labels):
-                            score_val = source_scores.get(score_key, 0.0)
-                            col.metric(f"{label} score", f"{score_val:.4f}")
-                        if selected_by_llm:
-                            st.caption("Selected by LLM reranker")
-                        elif any_llm_selected:
-                            st.caption("Not selected by LLM reranker")
+                st.markdown('<div class="indicator-row">', unsafe_allow_html=True)
+                _render_indicator_block(ordered[i + 1], i + 2, any_llm_selected)
+                st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_chart_designer(chart_payload: dict, df: pd.DataFrame) -> None:

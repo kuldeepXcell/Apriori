@@ -268,6 +268,8 @@ if "chart_spec" not in st.session_state:
     st.session_state.chart_spec = None
 if "chart_feedback_notes" not in st.session_state:
     st.session_state.chart_feedback_notes = ""
+if "chart_capture_trigger" not in st.session_state:
+    st.session_state.chart_capture_trigger = 0
 
 # Sidebar weights (sum enforced to 1 inside retrieval)
 st.sidebar.subheader("Hybrid weights")
@@ -728,26 +730,39 @@ if st.session_state.get("chart_payload") and st.session_state.get("chart_datafra
             if not chart_spec:
                 st.warning("Chart snapshot unavailable. Re-run the chart generation first.")
             else:
-                with st.spinner("Capturing chart from browser..."):
-                    try:
-                        # Capture PNG directly from browser-rendered Vega view
-                        image_bytes = capture_chart_png_from_browser(chart_spec, height=600)
-                        if not image_bytes:
-                            raise RuntimeError("Unable to capture chart image from browser")
-                        compressed_bytes, content_type, extension = compress_chart_image(image_bytes)
-                        image_url = upload_chart_image(
-                            st.session_state.feedback_id,
-                            compressed_bytes,
-                            content_type=content_type,
-                            extension=extension,
-                        )
-                        update_chart_feedback(
-                            st.session_state.feedback_id,
-                            chart_notes=st.session_state.chart_feedback_notes.strip() or None,
-                            chart_image_url=image_url,
-                        )
-                    except Exception as exc:
-                        logger.exception("Chart feedback save failed", extra={"module_name": ModuleName.UI})
-                        st.error(f"Chart feedback failed: {exc}")
-                    else:
-                        st.success("Chart feedback saved.")
+                # Trigger capture
+                st.session_state.chart_capture_trigger += 1
+    
+    # Handle capture component (renders when trigger > 0)
+    if st.session_state.chart_capture_trigger > 0 and st.session_state.get("chart_spec"):
+        capture_key = f"chart_capture_{st.session_state.chart_capture_trigger}"
+        
+        with st.spinner("Capturing chart from browser..."):
+            image_bytes = capture_chart_png_from_browser(
+                st.session_state.chart_spec,
+                key=capture_key,
+                height=600
+            )
+            
+        # If we got bytes back, proceed with upload
+        if image_bytes:
+            try:
+                compressed_bytes, content_type, extension = compress_chart_image(image_bytes)
+                image_url = upload_chart_image(
+                    st.session_state.feedback_id,
+                    compressed_bytes,
+                    content_type=content_type,
+                    extension=extension,
+                )
+                update_chart_feedback(
+                    st.session_state.feedback_id,
+                    chart_notes=st.session_state.chart_feedback_notes.strip() or None,
+                    chart_image_url=image_url,
+                )
+                st.success("Chart feedback saved.")
+                # Reset trigger
+                st.session_state.chart_capture_trigger = 0
+            except Exception as exc:
+                logger.exception("Chart feedback save failed", extra={"module_name": ModuleName.UI})
+                st.error(f"Chart feedback failed: {exc}")
+                st.session_state.chart_capture_trigger = 0

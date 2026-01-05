@@ -735,12 +735,10 @@ if st.session_state.get("chart_payload") and st.session_state.get("chart_datafra
     
     # Handle capture component (renders when trigger > 0)
     if st.session_state.chart_capture_trigger > 0 and st.session_state.get("chart_spec"):
-        capture_key = f"chart_capture_{st.session_state.chart_capture_trigger}"
-        
         with st.spinner("Capturing chart from browser..."):
             image_bytes = capture_chart_png_from_browser(
                 st.session_state.chart_spec,
-                key=capture_key,
+                trigger=st.session_state.chart_capture_trigger,
                 height=600
             )
             

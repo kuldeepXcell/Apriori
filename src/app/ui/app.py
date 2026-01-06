@@ -51,9 +51,14 @@ def format_duration(seconds: float, precision: int = 1) -> str:
 
 
 def build_chart_export_spec(chart) -> Optional[dict[str, Any]]:
-    """Return a Vega-Lite spec for saving chart snapshots."""
+    """Return a Vega-Lite spec for saving chart snapshots with larger dimensions."""
     try:
-        return chart.to_dict(format="vega-lite")
+        spec = chart.to_dict(format="vega-lite")
+        # Increase dimensions for saved SVG to prevent cramping and cutoff
+        if spec and isinstance(spec, dict):
+            spec["width"] = 1200  # Increased from 700
+            spec["height"] = 700  # Increased from 400
+        return spec
     except Exception:  # pragma: no cover - defensive
         logger.exception("Chart spec build failed", extra={"module_name": ModuleName.UI})
         return None

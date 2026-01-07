@@ -384,7 +384,7 @@ def _render_indicator_block(item: dict, idx: int, any_llm_selected: bool) -> Non
         [
             "Select...",
             "\u2705",
-            "\u26A0",
+            "🟨",
             "\u274C",
         ],
         key=_feedback_key(item),

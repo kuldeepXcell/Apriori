@@ -41,7 +41,7 @@ BASE_SYSTEM_PROMPT = dedent(
     1. Use indicator context to pick the correct table name. If a workbook has one sheet, the table name is the normalized indicator name; if it has multiple sheets, use the sheet name as the table name. Only call sql_db_schema when you need missing columns/datatypes. Always skip sql_db_list_tables unless table name is not clear from the indicator context.
     2. Use sql_db_query for SQL execution. Never run INSERT/UPDATE/DELETE.
     3. Only fetch data needed to answer the question; scope queries to requested entities/time ranges and build charts for that subset only.
-    4. Keep result sets tidy: one column for categories/time (x axis), one numeric measure (y axis), optional grouping field.
+    4. Keep result sets tidy: one column for categories/time (x axis) and one or more numeric measure columns that match the chart series keys.
     5. Limit queries to 100 rows unless the user explicitly asks for more.
     **Error Recovery & Reasoning**
     - When a query fails (bad column, type mismatch, etc.), read the error message, adjust the SQL, and retry.
@@ -64,17 +64,18 @@ BASE_SYSTEM_PROMPT = dedent(
     **Final Response Contract (JSON ONLY)**
     You MUST return JSON that conforms to the SQLAgentResponse Pydantic model:
       - `insights`: 2-3 concise bullet-style sentences (still a single string) describing the strategic takeaway.
-      - `table_rows`: Array of row dictionaries (<=200) in LONG format.
-          * Each row MUST include the `x_field` and `y_field` keys exactly as named in `chart_schema`.
-          * If a multi-series chart is needed, include `group_field` in every row too.
-          * Do NOT return wide rows with years as columns. If the data is wide, unpivot it first.
-      - `chart_schema`: Object with keys
-          * `x_field`, `y_field`, `group_field` (or null)
-          * `title`, `subtitle`, `legend_title`
-          * `axis_titles` dict with `x` and `y`
-          * `footnote_left` (definition) and `footnote_right` (last updated detail)
+      - `data`: Array of row dictionaries (<=200) in WIDE format.
+          * Each row MUST include the `chart.x.key` field and every `chart.series[*].key`.
+          * If multiple series are required, pivot the data so each series is a column.
+      - `chart`: Object with keys
+          * `title`
+          * `x`: { `key`, `label` }
+          * `y`: { `label` }
+          * `series`: list of { `name`, `key` } (must include at least one series)
+      - `table`: Object with keys
+          * `columns`: list of { `key`, `label` } for table rendering
       - `data_quality_notes`: Optional string describing NULL handling or caveats.
-    If your SQL output does not already match the required LONG format, adjust the SQL so it does.
+    If your SQL output does not already match the required WIDE format, adjust the SQL so it does.
 
     Indicator context (per indicator includes table naming, sheet counts, and sheet dimensions):
     {indicator_context}
@@ -93,19 +94,24 @@ FEW_SHOT_EXAMPLES = dedent(
     GROUP BY broadcast_year
     ORDER BY broadcast_year;
     Response highlights:
-      - `x_field`: "year", `y_field`: "avg_viewers" with a grouped option left empty
-      - Insights mention the peak/decline and what it means for advertising reach.
+      - `chart.x.key`: "year"
+      - `chart.series`: [{ name: "Avg viewers", key: "avg_viewers" }]
+      - `data` rows include `year` and `avg_viewers`
 
     ### Example 2 – Category Comparison with NULL Handling
     Question: "Compare consumer confidence between the US and China."
-    Thought: Filter the `consumer_confidence_index_score` table for those countries and recent years.
+    Thought: Pivot by country so each series becomes a column.
     SQL:
-    SELECT country_name, year, consumer_confidence_index
+    SELECT
+        year,
+        AVG(consumer_confidence_index) FILTER (WHERE country_name = 'United States') AS us_confidence,
+        AVG(consumer_confidence_index) FILTER (WHERE country_name = 'China') AS china_confidence
     FROM consumer_confidence_index_score
     WHERE country_name IN ('United States', 'China')
+    GROUP BY year
     ORDER BY year DESC;
     Response notes:
-      - Grouped line chart with `group_field`: "country_name"
+      - `chart.series` includes keys `us_confidence` and `china_confidence`
       - `data_quality_notes` mentions that 2024 data is missing for China (NULL) and is excluded.
 
     ### Example 3 – Data Quality Emphasis
@@ -124,7 +130,7 @@ FEW_SHOT_EXAMPLES = dedent(
     WHERE year >= 2019;
     Response notes:
       - If pct_change has NULLs due to missing lag, explain that in `data_quality_notes`.
-      - Chart schema still requests a line chart so the UI can show trajectories.
+      - `chart.series` should use a `pct_change` key so the UI can plot trajectories.
 
     ### Example 4 – Error Recovery After Schema Mismatch
     Question: "Show the latest AQI readings for New Delhi."
@@ -140,6 +146,7 @@ FEW_SHOT_EXAMPLES = dedent(
     LIMIT 12;
     Response notes:
       - Mention that the agent retried with the proper column and that results focus on the latest readings.
+      - `chart.series` should use the `aqi_value` key with `chart.x.key` set to `last_updated`.
 
     """
 ).strip()
